@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar'
 import * as SplashScreen from 'expo-splash-screen'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { AuthProvider, useAuth } from '../context/AuthContext'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 
 SplashScreen.preventAutoHideAsync()
 
@@ -46,10 +47,12 @@ function RootLayoutNav() {
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <AuthProvider>
-        <StatusBar style="light" />
-        <RootLayoutNav />
-      </AuthProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          <StatusBar style="light" />
+          <RootLayoutNav />
+        </AuthProvider>
+      </ErrorBoundary>
     </GestureHandlerRootView>
   )
 }

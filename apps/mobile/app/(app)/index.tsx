@@ -14,6 +14,14 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../context/AuthContext'
 import { COLORS, TYPOGRAPHY, SPACING, RADII, STATUS_LABELS, STATUS_COLORS } from '@de/ui'
 import type { Plot } from '@de/db'
+import { OfflineBanner } from '../../components/OfflineBanner'
+import {
+  cachePlots,
+  getCachedPlots,
+  cacheStats,
+  getCachedStats,
+  isNetworkError,
+} from '../../lib/plotsCache'
 
 export default function HomeScreen() {
   const { workspaceCtx, user } = useAuth()
@@ -21,6 +29,7 @@ export default function HomeScreen() {
   const [recentPlots, setRecentPlots] = useState<Plot[]>([])
   const [stats, setStats] = useState({ total: 0, shortlist: 0, inbox: 0 })
   const [refreshing, setRefreshing] = useState(false)
+  const [isOffline, setIsOffline] = useState(false)
 
   useEffect(() => {
     if (workspaceCtx.workspace) loadData()
@@ -29,30 +38,51 @@ export default function HomeScreen() {
   async function loadData() {
     const wsId = workspaceCtx.workspace!.id
 
-    const [plotsRes, statsRes] = await Promise.all([
-      supabase
-        .from('plots')
-        .select('*')
-        .eq('workspace_id', wsId)
-        .eq('is_deleted', false)
-        .order('updated_at', { ascending: false })
-        .limit(5),
-      supabase
-        .from('plots')
-        .select('status', { count: 'exact', head: false })
-        .eq('workspace_id', wsId)
-        .eq('is_deleted', false),
-    ])
+    try {
+      const [plotsRes, statsRes] = await Promise.all([
+        supabase
+          .from('plots')
+          .select('*')
+          .eq('workspace_id', wsId)
+          .eq('is_deleted', false)
+          .order('updated_at', { ascending: false })
+          .limit(5),
+        supabase
+          .from('plots')
+          .select('status', { count: 'exact', head: false })
+          .eq('workspace_id', wsId)
+          .eq('is_deleted', false),
+      ])
 
-    if (plotsRes.data) setRecentPlots(plotsRes.data as Plot[])
+      if (plotsRes.data) {
+        setRecentPlots(plotsRes.data as Plot[])
+        cachePlots(wsId, plotsRes.data as Plot[]).catch(() => {})
+      }
 
-    if (statsRes.data) {
-      const all = statsRes.data as Array<{ status: string }>
-      setStats({
-        total: all.length,
-        shortlist: all.filter((p) => p.status === 'shortlist' || p.status === 'top3').length,
-        inbox: all.filter((p) => p.status === 'inbox').length,
-      })
+      if (statsRes.data) {
+        const all = statsRes.data as Array<{ status: string }>
+        const computed = {
+          total: all.length,
+          shortlist: all.filter((p) => p.status === 'shortlist' || p.status === 'top3').length,
+          inbox: all.filter((p) => p.status === 'inbox').length,
+        }
+        setStats(computed)
+        cacheStats(wsId, computed).catch(() => {})
+      }
+
+      setIsOffline(false)
+    } catch (err) {
+      if (isNetworkError(err)) {
+        setIsOffline(true)
+        const [cachedPlots, cachedStats] = await Promise.all([
+          getCachedPlots<Plot>(wsId),
+          getCachedStats(wsId),
+        ])
+        if (cachedPlots) setRecentPlots(cachedPlots)
+        if (cachedStats) setStats(cachedStats)
+      } else {
+        throw err
+      }
     }
   }
 
@@ -64,6 +94,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {isOffline && <OfflineBanner />}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}

@@ -65,6 +65,36 @@ export default function QuickAddModal({ onClose, prefillUrl }: Props) {
     try {
       const sourceType = detectSourceType(url)
 
+      // 0. Pre-flight duplicate check (only for URL submissions)
+      if (url.trim()) {
+        const { data: existing } = await supabase
+          .from('plots')
+          .select('id, title, status')
+          .eq('workspace_id', workspaceCtx.workspace!.id)
+          .eq('source_url', url.trim())
+          .eq('is_deleted', false)
+          .maybeSingle()
+
+        if (existing) {
+          setLoading(false)
+          Alert.alert(
+            'Duplikat',
+            `Ta działka jest już w workspace jako "${existing.title ?? 'Bez nazwy'}". Otworzyć?`,
+            [
+              { text: 'Anuluj', style: 'cancel' },
+              {
+                text: 'Otwórz',
+                onPress: () => {
+                  onClose()
+                  router.push(`/(app)/plot/${existing.id}` as never)
+                },
+              },
+            ]
+          )
+          return
+        }
+      }
+
       // 1. Create plot
       const { data: plot, error: plotErr } = await supabase
         .from('plots')
