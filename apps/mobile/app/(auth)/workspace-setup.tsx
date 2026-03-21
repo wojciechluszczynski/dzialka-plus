@@ -18,7 +18,7 @@ export default function WorkspaceSetupScreen() {
   const [name, setName] = useState('Wojtek i Sabina — Działki 2026')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const { user, refreshWorkspace } = useAuth()
+  const { refreshWorkspace } = useAuth()
   const router = useRouter()
 
   async function handleCreate() {
@@ -28,26 +28,11 @@ export default function WorkspaceSetupScreen() {
     }
     setLoading(true)
     setError(null)
-
     try {
-      // 1. Create workspace
-      const { data: ws, error: wsErr } = await supabase
-        .from('workspaces')
-        .insert({ name: name.trim(), created_by: user!.id })
-        .select()
-        .single()
-
-      if (wsErr) throw wsErr
-
-      // 2. Add owner membership
-      const { error: memErr } = await supabase
-        .from('workspace_members')
-        .insert({ workspace_id: ws.id, user_id: user!.id, role: 'owner' })
-
-      if (memErr) throw memErr
-
-      // 3. Create default scoring profile
-      await supabase.from('scoring_profiles').insert({ workspace_id: ws.id })
+      // SECURITY DEFINER RPC — works for both regular and anonymous users
+      const { error: rpcErr } = await supabase
+        .rpc('create_workspace_for_user', { workspace_name: name.trim() })
+      if (rpcErr) throw rpcErr
 
       await refreshWorkspace()
       router.replace('/(app)/')
@@ -66,7 +51,6 @@ export default function WorkspaceSetupScreen() {
           <Text style={styles.subtitle}>
             Workspace to współdzielona przestrzeń do zarządzania działkami dla Ciebie i Twojego partnera.
           </Text>
-
           <Text style={styles.label}>Nazwa workspace</Text>
           <TextInput
             style={styles.input}
@@ -78,9 +62,7 @@ export default function WorkspaceSetupScreen() {
             returnKeyType="done"
             onSubmitEditing={handleCreate}
           />
-
           {error && <Text style={styles.error}>{error}</Text>}
-
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
             onPress={handleCreate}

@@ -1,5 +1,4 @@
 'use client'
-
 import { useState } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { useRouter } from 'next/navigation'
@@ -17,27 +16,15 @@ export default function WorkspaceSetupPage() {
     setLoading(true)
     setError(null)
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/auth/login'); return }
+    // SECURITY DEFINER RPC — works for both regular and anonymous users
+    const { data: ws, error: rpcErr } = await supabase
+      .rpc('create_workspace_for_user', { workspace_name: name.trim() })
 
-    // 1. Create workspace
-    const { data: ws, error: wsErr } = await supabase
-      .from('workspaces')
-      .insert({ name: name.trim(), created_by: user.id })
-      .select()
-      .single()
-
-    if (wsErr) { setError(wsErr.message); setLoading(false); return }
-
-    // 2. Add owner membership
-    const { error: memErr } = await supabase
-      .from('workspace_members')
-      .insert({ workspace_id: ws.id, user_id: user.id, role: 'owner' })
-
-    if (memErr) { setError(memErr.message); setLoading(false); return }
-
-    // 3. Create default scoring profile
-    await supabase.from('scoring_profiles').insert({ workspace_id: ws.id })
+    if (rpcErr) {
+      setError(rpcErr.message)
+      setLoading(false)
+      return
+    }
 
     router.push(`/app/workspace/${ws.id}/plots`)
   }
@@ -73,9 +60,7 @@ export default function WorkspaceSetupPage() {
               className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/60 transition-colors"
             />
           </div>
-
           {error && <p className="text-error text-sm">{error}</p>}
-
           <button
             type="submit"
             disabled={loading}
