@@ -31,9 +31,6 @@
       ],
       "@de/ui": [
         "../../packages/ui/src"
-      ],
-      "@de/ai": [
-        "../../packages/ai/src"
       ]
     }
   },

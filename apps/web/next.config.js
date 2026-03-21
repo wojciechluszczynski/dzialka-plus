@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@de/db', '@de/scoring', '@de/ui', '@de/ai'],
+  transpilePackages: ['@de/db', '@de/scoring', '@de/ui'],
   experimental: {
     serverComponentsExternalPackages: ['@anthropic-ai/sdk'],
   },
