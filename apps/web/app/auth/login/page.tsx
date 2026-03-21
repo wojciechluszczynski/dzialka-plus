@@ -2,16 +2,30 @@
 
 import { Suspense, useState } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 function LoginForm() {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
+  const [guestLoading, setGuestLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const searchParams = useSearchParams()
   const next = searchParams.get('next') ?? '/app'
   const supabase = createClientComponentClient()
+  const router = useRouter()
+
+  async function handleGuest() {
+    setGuestLoading(true)
+    setError(null)
+    const { error } = await supabase.auth.signInAnonymously()
+    setGuestLoading(false)
+    if (error) {
+      setError(error.message)
+    } else {
+      router.push('/app')
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -79,6 +93,26 @@ function LoginForm() {
 
             <p className="text-text-muted text-xs text-center">
               Wyślemy Ci magic link na email. Bez hasła.
+            </p>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 my-1">
+              <div className="flex-1 h-px bg-white/10" />
+              <span className="text-text-muted text-xs uppercase tracking-widest">lub</span>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
+
+            {/* Guest button */}
+            <button
+              type="button"
+              onClick={handleGuest}
+              disabled={guestLoading}
+              className="w-full border border-white/10 hover:border-white/20 disabled:opacity-60 text-text-secondary hover:text-text-primary font-medium rounded-lg py-3 text-sm transition-colors bg-white/3"
+            >
+              {guestLoading ? 'Wchodzę...' : '👻 Wejdź bez konta'}
+            </button>
+            <p className="text-text-muted text-xs text-center">
+              Dane zostaną zapisane. Email możesz dodać później.
             </p>
           </form>
         ) : (

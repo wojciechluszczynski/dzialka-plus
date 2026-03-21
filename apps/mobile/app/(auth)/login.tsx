@@ -17,8 +17,18 @@ import { COLORS, TYPOGRAPHY, SPACING, RADII } from '@de/ui'
 export default function LoginScreen() {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
+  const [guestLoading, setGuestLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  async function handleGuest() {
+    setGuestLoading(true)
+    setError(null)
+    const { error } = await supabase.auth.signInAnonymously()
+    setGuestLoading(false)
+    if (error) setError(error.message)
+    // AuthContext listener handles routing on success
+  }
 
   async function handleMagicLink() {
     if (!email.trim()) {
@@ -96,6 +106,30 @@ export default function LoginScreen() {
 
               <Text style={styles.hint}>
                 Wyślemy Ci magic link na email. Bez hasła.
+              </Text>
+
+              {/* Divider */}
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>lub</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              {/* Guest button */}
+              <TouchableOpacity
+                style={[styles.guestButton, guestLoading && styles.buttonDisabled]}
+                onPress={handleGuest}
+                disabled={guestLoading}
+                activeOpacity={0.8}
+              >
+                {guestLoading ? (
+                  <ActivityIndicator color={COLORS.accent} />
+                ) : (
+                  <Text style={styles.guestButtonText}>👻 Wejdź bez konta</Text>
+                )}
+              </TouchableOpacity>
+              <Text style={styles.guestHint}>
+                Twoje dane zostaną zapisane lokalnie. Możesz dodać email później.
               </Text>
             </View>
           ) : (
@@ -201,6 +235,33 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     fontSize: TYPOGRAPHY.sizes.xs,
     textAlign: 'center',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    marginTop: SPACING.sm,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: COLORS.border },
+  dividerText: { color: COLORS.textMuted, fontSize: TYPOGRAPHY.sizes.xs, textTransform: 'uppercase', letterSpacing: 1 },
+  guestButton: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADII.md,
+    paddingVertical: SPACING.base,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  guestButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: TYPOGRAPHY.sizes.base,
+    fontWeight: TYPOGRAPHY.weights.medium,
+  },
+  guestHint: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 16,
   },
   sentBox: {
     alignItems: 'center',
