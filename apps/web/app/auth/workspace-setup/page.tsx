@@ -26,7 +26,8 @@ export default function WorkspaceSetupPage() {
       return
     }
 
-    router.push(`/app/workspace/${ws.id}/plots`)
+    const wsData = ws as { id: string } | null
+    router.push(`/app/workspace/${wsData?.id ?? ''}/plots`)
   }
 
   return (

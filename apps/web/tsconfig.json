@@ -1,21 +1,49 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "preserve",
     "incremental": true,
     "skipLibCheck": true,
-    "types": ["node"],
-    "plugins": [{ "name": "next" }],
+    "types": [
+      "node"
+    ],
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
     "paths": {
-      "@/*": ["./src/*"],
-      "@de/db": ["../../packages/db/src"],
-      "@de/scoring": ["../../packages/scoring/src"],
-      "@de/ui": ["../../packages/ui/src"]
+      "@/*": [
+        "./src/*"
+      ],
+      "@de/db": [
+        "../../packages/db/src"
+      ],
+      "@de/scoring": [
+        "../../packages/scoring/src"
+      ],
+      "@de/ui": [
+        "../../packages/ui/src"
+      ],
+      "@de/ai": [
+        "../../packages/ai/src"
+      ]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

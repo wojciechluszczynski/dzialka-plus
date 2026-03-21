@@ -34,6 +34,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Plot not found or access denied' }, { status: 403 })
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const plotData = plot as any
+
   // Check for cached report (< 24h) unless force refresh
   if (!force_refresh) {
     const { data: existing } = await supabase
@@ -56,18 +59,18 @@ export async function POST(req: NextRequest) {
 
   // Build raw text from plot fields
   const rawText = [
-    plot.title && `Tytuł: ${plot.title}`,
-    plot.description && `Opis: ${plot.description}`,
-    plot.asking_price_pln && `Cena: ${plot.asking_price_pln} zł`,
-    plot.area_m2 && `Powierzchnia: ${plot.area_m2} m²`,
-    plot.location_text && `Lokalizacja: ${plot.location_text}`,
-    plot.source_url && `Źródło: ${plot.source_url}`,
+    plotData.title && `Tytuł: ${plotData.title}`,
+    plotData.description && `Opis: ${plotData.description}`,
+    plotData.asking_price_pln && `Cena: ${plotData.asking_price_pln} zł`,
+    plotData.area_m2 && `Powierzchnia: ${plotData.area_m2} m²`,
+    plotData.location_text && `Lokalizacja: ${plotData.location_text}`,
+    plotData.source_url && `Źródło: ${plotData.source_url}`,
   ].filter(Boolean).join('\n')
 
   try {
     // Step 1: Extract listing data
     const extractPrompt = buildExtractListingPrompt({
-      sourceUrl: plot.source_url || '',
+      sourceUrl: plotData.source_url || '',
       sourceType: 'listing',
       rawText,
       imageReferences: [],
@@ -92,9 +95,9 @@ export async function POST(req: NextRequest) {
 
     // Step 3: Valuation note
     const valPrompt = buildValuationNotePrompt({
-      askingPricePln: plot.asking_price_pln ?? null,
-      areaM2: plot.area_m2 ?? null,
-      locationText: plot.location_text || '',
+      askingPricePln: plotData.asking_price_pln ?? null,
+      areaM2: plotData.area_m2 ?? null,
+      locationText: plotData.location_text || '',
       rcnStats: null,
       marketContext: null,
     })
@@ -104,7 +107,7 @@ export async function POST(req: NextRequest) {
     const qPrompt = buildGenerateQuestionsPrompt({
       extractionJson: JSON.stringify(extraction),
       riskFlagsJson: JSON.stringify(riskFlags),
-      plotStatus: plot.status || 'inbox',
+      plotStatus: plotData.status || 'inbox',
       knownIssues: [],
     })
     const questions = await callAI(qPrompt) as Record<string, unknown>
@@ -118,7 +121,7 @@ export async function POST(req: NextRequest) {
       .from('plot_ai_reports')
       .upsert({
         plot_id,
-        workspace_id: plot.workspace_id,
+        workspace_id: plotData.workspace_id,
         extraction_json: extraction,
         risk_flags_json: riskFlags,
         valuation_json: valuation,
