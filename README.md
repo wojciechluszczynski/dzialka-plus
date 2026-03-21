@@ -72,19 +72,65 @@ npm run mobile
 
 Po `supabase start` Studio dostępne pod: http://localhost:54323
 
+## Deployment — Netlify (dzialkometr.netlify.app)
+
+Aplikacja web jest deployowana przez Netlify na adres **https://dzialkometr.netlify.app**.
+
+### Pierwsze wdrożenie
+
+1. Zaloguj się na [netlify.com](https://app.netlify.com)
+2. **Add new site → Import an existing project → GitHub**
+3. Wybierz repo: `wojciechluszczynski/dzialka-plus`
+4. **Site name**: `dzialkometr`
+5. Build settings są automatycznie pobierane z `netlify.toml` w root repo:
+   - Base dir: `apps/web`
+   - Build command: `cd ../.. && npm install && cd apps/web && npm run build`
+   - Publish dir: `apps/web/.next`
+6. **Environment variables** (Settings → Environment variables):
+   ```
+   NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+   SUPABASE_SERVICE_ROLE_KEY=eyJ...
+   ANTHROPIC_API_KEY=sk-ant-...
+   NEXTAUTH_SECRET=<random-32-chars>
+   NEXT_PUBLIC_APP_URL=https://dzialkometr.netlify.app
+   ```
+7. Kliknij **Deploy site**
+
+### Kolejne deploy'e
+
+Każdy push do `main` triggeruje automatyczny deploy przez webhook GitHub → Netlify.
+
+### Supabase Edge Functions
+
+Deploy Edge Functions ręcznie przez Supabase CLI:
+
+```bash
+supabase functions deploy process_plot --project-ref YOUR_PROJECT_REF
+supabase functions deploy generate_invite --project-ref YOUR_PROJECT_REF
+supabase functions deploy accept_invite --project-ref YOUR_PROJECT_REF
+```
+
+Ustaw też secrets w Supabase Dashboard → Edge Functions → Secrets:
+```
+ANTHROPIC_API_KEY=sk-ant-...
+APP_URL=https://dzialkometr.netlify.app
+```
+
+---
+
 ## Sprinty
 
 | Sprint | Zakres | Status |
 |---|---|---|
 | Sprint 0 | Monorepo, schema, auth, bottom nav, CI/CD | ✅ Done |
-| Sprint 1 | Quick Add, Inbox, FB share-to-app, AI draft | 🔜 |
-| Sprint 2 | Plot Detail, status workflow, contacts, mapa | 🔜 |
-| Sprint 3 | Scoring + shared, deal breakers, compare | 🔜 |
-| Sprint 4 | AI extraction, risk flags, valuation, questions | 🔜 |
-| Sprint 5 | Enrichment: RCN, ISOK, PSE, travel times | 🔜 |
-| Sprint 6 | Push notifications, change log, presence | 🔜 |
-| Sprint 7 | Web table view, bulk edit, export CSV | 🔜 |
-| Sprint 8 | Offline hardening, QA, performance | 🔜 |
+| Sprint 1 | Quick Add (3 tryby + image), Inbox swipe, AI Edge Fn, PlotDetail + real-time, Web Add/Status/Invite, Netlify config | ✅ Done |
+| Sprint 2 | Scoring UI, deal-breakers, partner view, notatki + kontakty | 🔜 |
+| Sprint 3 | AI extraction full flow, risk flags UI, valuation, auto-questions | 🔜 |
+| Sprint 4 | Enrichment: RCN, ISOK, PSE, travel times (Mapbox/Google) | 🔜 |
+| Sprint 5 | Push notifications, change log, presence, activity feed | 🔜 |
+| Sprint 6 | Web: bulk edit, export CSV, compare view | 🔜 |
+| Sprint 7 | Offline hardening (SQLite + outbox), QA, performance | 🔜 |
 
 ## Dokumenty
 
@@ -100,4 +146,4 @@ Po `supabase start` Studio dostępne pod: http://localhost:54323
 
 ---
 
-*DecisionEngine v1.0.0 — Sprint 0 · 2026-03-21*
+*DecisionEngine v1.1.0 — Sprint 1 · 2026-03-21*
