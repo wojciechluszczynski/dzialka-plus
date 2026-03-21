@@ -49,6 +49,7 @@ export default function PlotDetailScreen() {
   const { workspaceCtx } = useAuth()
   const [plot, setPlot] = useState<FullPlot | null>(null)
   const [loading, setLoading] = useState(true)
+  const [aiReport, setAiReport] = useState<PlotAiReport | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('info')
   const [advancingStatus, setAdvancingStatus] = useState(false)
@@ -78,6 +79,16 @@ export default function PlotDetailScreen() {
         loadPlot()
         setActiveTab('ai')
       })
+
+      // Load AI report
+      const { data: aiData } = await supabase
+        .from('plot_ai_reports')
+        .select('*')
+        .eq('plot_id', id as string)
+        .order('processed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      setAiReport(aiData)
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
@@ -271,7 +282,7 @@ export default function PlotDetailScreen() {
           {/* Tab content */}
           <View style={styles.tabContent}>
             {activeTab === 'info' && <InfoTab plot={plot} />}
-            {activeTab === 'ai' && <AITab aiReport={aiReport} isProcessing={!plot.ai_processed_at} />}
+            {activeTab === 'ai' && <AITab aiReport={aiReport} plotId={plot.id} onReportUpdated={(r) => setAiReport(r)} />}
             {activeTab === 'notes' && <NotesTab plotId={plot.id} />}
             {activeTab === 'contacts' && <ContactsTab plotId={plot.id} workspaceId={workspaceCtx.workspace!.id} />}
           </View>
@@ -377,8 +388,42 @@ function InfoTab({ plot }: { plot: FullPlot }) {
   )
 }
 
-function AITab({ aiReport, isProcessing }: { aiReport?: PlotAiReport; isProcessing: boolean }) {
-  if (isProcessing) {
+const AI_API_URL = process.env.EXPO_PUBLIC_WEB_URL || 'https://dzialkometr.netlify.app'
+
+function AITab({ aiReport, plotId, onReportUpdated }: {
+  aiReport?: PlotAiReport | null
+  plotId: string
+  onReportUpdated: (r: PlotAiReport) => void
+}) {
+  const [aiLoading, setAiLoading] = useState(false)
+
+  async function runAnalysis(forceRefresh = false) {
+    setAiLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Nie jesteś zalogowany')
+      const res = await fetch(`${AI_API_URL}/api/ai/analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ plot_id: plotId, force_refresh: forceRefresh }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Błąd analizy AI')
+      }
+      const { report } = await res.json()
+      onReportUpdated(report)
+    } catch (err: unknown) {
+      Alert.alert('Błąd AI', (err as Error).message)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  if (aiLoading) {
     return (
       <View style={styles.aiProcessingState}>
         <ActivityIndicator color={COLORS.accent} size="large" />
@@ -395,7 +440,16 @@ function AITab({ aiReport, isProcessing }: { aiReport?: PlotAiReport; isProcessi
       <View style={styles.aiProcessingState}>
         <Text style={styles.aiEmptyIcon}>🤖</Text>
         <Text style={styles.aiProcessingTitle}>Brak analizy AI</Text>
-        <Text style={styles.aiProcessingSubtitle}>Dodaj więcej danych o działce aby uruchomić AI</Text>
+        <Text style={styles.aiProcessingSubtitle}>
+          Claude przeanalizuje ogłoszenie: wyciągnie dane, sprawdzi ryzyka i wygeneruje pytania do sprzedającego.
+        </Text>
+        <TouchableOpacity
+          style={styles.aiAnalyzeBtn}
+          onPress={() => runAnalysis(false)}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.aiAnalyzeBtnText}>⚡ Analizuj AI</Text>
+        </TouchableOpacity>
       </View>
     )
   }
@@ -406,13 +460,29 @@ function AITab({ aiReport, isProcessing }: { aiReport?: PlotAiReport; isProcessi
   const dealBreakers = (aiReport.risk_flags_json as Record<string, unknown>)?.deal_breakers as Array<{
     key: string; label: string; triggered: boolean; rationale: string
   }> ?? []
+  const valuation = aiReport.valuation_json as Record<string, unknown> | null
+  const questions = (aiReport.questions_json as Record<string, unknown>)?.must_ask_before_contact as Array<{
+    question: string; context?: string
+  }> ?? []
 
   return (
-    <View style={styles.sectionGap}>
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.aiScrollContent}>
+      {/* Header row */}
+      <View style={styles.aiHeaderRow}>
+        <Text style={styles.aiHeaderMeta}>
+          {aiReport.processed_at
+            ? new Date(aiReport.processed_at).toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+            : ''} · {aiReport.model_used ?? 'claude'}
+        </Text>
+        <TouchableOpacity style={styles.aiRefreshBtn} onPress={() => runAnalysis(true)} activeOpacity={0.8}>
+          <Text style={styles.aiRefreshBtnText}>↻ Odśwież</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Confidence */}
       {aiReport.extraction_confidence != null && (
         <View style={styles.confidenceRow}>
-          <Text style={styles.confidenceLabel}>Pewność AI:</Text>
+          <Text style={styles.confidenceLabel}>Pewność ekstrakcji:</Text>
           <Text style={[styles.confidenceValue, {
             color: aiReport.extraction_confidence > 0.7 ? COLORS.success
               : aiReport.extraction_confidence > 0.4 ? COLORS.warning
@@ -423,12 +493,34 @@ function AITab({ aiReport, isProcessing }: { aiReport?: PlotAiReport; isProcessi
         </View>
       )}
 
+      {/* Valuation */}
+      {valuation && (
+        <>
+          <Text style={styles.sectionHeading}>Wycena</Text>
+          <View style={styles.valuationCard}>
+            <View style={[styles.valuationBadge, {
+              backgroundColor: valuation.price_position === 'cheap' ? '#10B981'
+                : valuation.price_position === 'fair' ? '#3B82F6'
+                : valuation.price_position === 'expensive' ? '#EF4444'
+                : '#6B7280',
+            }]}>
+              <Text style={styles.valuationBadgeText}>
+                {valuation.price_position_label as string || valuation.price_position as string}
+              </Text>
+            </View>
+            {valuation.explanation && (
+              <Text style={styles.valuationExplanation}>{valuation.explanation as string}</Text>
+            )}
+          </View>
+        </>
+      )}
+
       {/* Deal breakers */}
       {dealBreakers.filter((d) => d.triggered).length > 0 && (
         <View style={styles.dealBreakerBox}>
           <View style={styles.dealBreakerHeader}>
             <Ionicons name="warning" size={18} color={COLORS.error} />
-            <Text style={styles.dealBreakerTitle}>Deal breakers wykryte</Text>
+            <Text style={styles.dealBreakerTitle}>Deal breakery wykryte</Text>
           </View>
           {dealBreakers.filter((d) => d.triggered).map((d) => (
             <View key={d.key} style={styles.dealBreakerItem}>
@@ -458,7 +550,25 @@ function AITab({ aiReport, isProcessing }: { aiReport?: PlotAiReport; isProcessi
           ))}
         </>
       )}
-    </View>
+
+      {/* Questions */}
+      {questions.length > 0 && (
+        <>
+          <Text style={styles.sectionHeading}>Pytania do sprzedającego ({questions.length})</Text>
+          {questions.map((q, i) => (
+            <View key={i} style={styles.questionItem}>
+              <Text style={styles.questionNum}>{i + 1}.</Text>
+              <View style={styles.questionBody}>
+                <Text style={styles.questionText}>{q.question}</Text>
+                {q.context && <Text style={styles.questionContext}>{q.context}</Text>}
+              </View>
+            </View>
+          ))}
+        </>
+      )}
+
+      <View style={{ height: 40 }} />
+    </ScrollView>
   )
 }
 
@@ -936,6 +1046,34 @@ const styles = StyleSheet.create({
   utilityValue: { fontSize: 11, fontWeight: TYPOGRAPHY.weights.bold },
 
   // AI tab
+  aiAnalyzeBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADII.md,
+    paddingVertical: SPACING.base,
+    paddingHorizontal: SPACING['2xl'],
+    marginTop: SPACING.md,
+    alignItems: 'center',
+  },
+  aiAnalyzeBtnText: {
+    color: '#fff',
+    fontFamily: TYPOGRAPHY.fontHeading,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    fontSize: TYPOGRAPHY.sizes.base,
+  },
+  aiScrollContent: { paddingHorizontal: SPACING.base, paddingTop: SPACING.sm },
+  aiHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
+  aiHeaderMeta: { color: COLORS.textMuted, fontSize: TYPOGRAPHY.sizes.xs },
+  aiRefreshBtn: { borderWidth: 1, borderColor: COLORS.border, borderRadius: RADII.sm, paddingVertical: 4, paddingHorizontal: SPACING.sm },
+  aiRefreshBtnText: { color: COLORS.textSecondary, fontSize: TYPOGRAPHY.sizes.xs },
+  valuationCard: { backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: COLORS.border, borderRadius: RADII.sm, padding: SPACING.sm, gap: SPACING.xs, marginBottom: SPACING.base },
+  valuationBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 4, alignSelf: 'flex-start' },
+  valuationBadgeText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  valuationExplanation: { color: COLORS.textSecondary, fontSize: TYPOGRAPHY.sizes.xs, lineHeight: 16 },
+  questionItem: { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.sm },
+  questionNum: { color: COLORS.textMuted, fontSize: TYPOGRAPHY.sizes.sm, minWidth: 24 },
+  questionBody: { flex: 1, gap: 2 },
+  questionText: { color: COLORS.textPrimary, fontSize: TYPOGRAPHY.sizes.sm, lineHeight: 18 },
+  questionContext: { color: COLORS.textMuted, fontSize: TYPOGRAPHY.sizes.xs, lineHeight: 14 },
   aiProcessingState: {
     alignItems: 'center',
     paddingVertical: SPACING['3xl'],

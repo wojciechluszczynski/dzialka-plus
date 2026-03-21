@@ -20,7 +20,8 @@
     "react-dom": "^18.3.0",
     "clsx": "^2.1.1",
     "tailwind-merge": "^2.3.0",
-    "lucide-react": "^0.383.0"
+    "lucide-react": "^0.383.0",
+    "@de/ai": "*"
   },
   "devDependencies": {
     "@netlify/plugin-nextjs": "^5.3.0",
