@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { STATUS_LABELS, STATUS_COLORS, VERDICT_COLORS, VERDICT_LABELS, SOURCE_LABELS } from '@de/ui'
-import type { PlotStatus, Verdict } from '@de/db'
+import type { PlotStatus, SourceType, Verdict } from '@de/db'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function PlotDetailView({ plot: initialPlot, workspaceId }: { plot: any; workspaceId: string }) {
@@ -58,12 +58,12 @@ export default function PlotDetailView({ plot: initialPlot, workspaceId }: { plo
               {plot.title ?? <span className="text-text-muted italic">Bez nazwy</span>}
             </h1>
             {plot.location_text && (
-              <p className="text-text-secondary mt-1">\u{1F4CD} {plot.location_text}</p>
+              <p className="text-text-secondary mt-1">📍 {plot.location_text}</p>
             )}
           </div>
           <select value={plot.status} onChange={(e) => changeStatus(e.target.value as PlotStatus)}
             className="text-sm font-semibold rounded-lg px-3 py-2 border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/60 self-start"
-            style={{ backgroundColor: STATUS_COLORS[plot.status] + '33', color: STATUS_COLORS[plot.status] }}>
+            style={{ backgroundColor: STATUS_COLORS[plot.status as PlotStatus] + '33', color: STATUS_COLORS[plot.status as PlotStatus] }}>
             {Object.entries(STATUS_LABELS).map(([k, v]) => (
               <option key={k} value={k} style={{ backgroundColor: '#0A1428', color: '#E2E8F0' }}>{v}</option>
             ))}
@@ -76,7 +76,7 @@ export default function PlotDetailView({ plot: initialPlot, workspaceId }: { plo
             { label: 'Cena', value: plot.asking_price_pln ? new Intl.NumberFormat('pl-PL').format(plot.asking_price_pln) + ' PLN' : '\u2014' },
             { label: 'Powierzchnia', value: plot.area_m2 ? plot.area_m2.toLocaleString('pl-PL') + ' m\u00b2' : '\u2014' },
             { label: 'PLN/m\u00b2', value: ppm2 ? new Intl.NumberFormat('pl-PL').format(ppm2) : '\u2014' },
-            { label: '\u0179r\u00f3d\u0142o', value: plot.source_type ? (SOURCE_LABELS[plot.source_type] ?? plot.source_type) : '\u2014' },
+            { label: '\u0179r\u00f3d\u0142o', value: plot.source_type ? (SOURCE_LABELS[plot.source_type as SourceType] ?? plot.source_type) : '\u2014' },
           ].map((m) => (
             <div key={m.label} className="bg-white/3 rounded-lg p-3">
               <div className="text-text-muted text-xs uppercase tracking-wide mb-1">{m.label}</div>
@@ -88,7 +88,7 @@ export default function PlotDetailView({ plot: initialPlot, workspaceId }: { plo
         {plot.source_url && (
           <a href={plot.source_url} target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 mt-3 text-accent hover:text-accent/80 text-sm transition-colors">
-            \u{1F517} Otwórz ogłoszenie \u2197
+            🔗 Otwórz ogłoszenie ↗
           </a>
         )}
       </div>
@@ -96,7 +96,7 @@ export default function PlotDetailView({ plot: initialPlot, workspaceId }: { plo
       {/* AI Score */}
       {verdict && score && (
         <div className="glass rounded-2xl p-5 mb-4">
-          <h2 className="font-heading text-base font-semibold text-text-primary mb-3">\u2728 Ocena AI</h2>
+          <h2 className="font-heading text-base font-semibold text-text-primary mb-3">✨ Ocena AI</h2>
           <div className="flex items-center gap-4">
             <div className="text-4xl font-heading font-bold" style={{ color: VERDICT_COLORS[verdict] }}>
               {score.score_shared?.toFixed(1)}
@@ -127,7 +127,7 @@ export default function PlotDetailView({ plot: initialPlot, workspaceId }: { plo
 
       {/* Notes */}
       <div className="glass rounded-2xl p-5">
-        <h2 className="font-heading text-base font-semibold text-text-primary mb-4">\u{1F4DD} Notatki ({notes.length})</h2>
+        <h2 className="font-heading text-base font-semibold text-text-primary mb-4">📝 Notatki ({notes.length})</h2>
         <div className="space-y-3 mb-4">
           {notes.length === 0 && <p className="text-text-muted text-sm">Brak notatek.</p>}
           {notes.map((n) => (
