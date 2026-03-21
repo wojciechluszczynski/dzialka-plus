@@ -1,0 +1,12 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@de/db": ["../../packages/db/src"],
+      "@de/scoring": ["../../packages/scoring/src"],
+      "@de/ui": ["../../packages/ui/src"],
+      "@/*": ["./app/*"]
+    }
+  }
+}

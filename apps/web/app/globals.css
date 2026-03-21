@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --c0: #060C18;
+  --c1: #0A1428;
+  --c2: #0F1C38;
+  --c3: #162040;
+  --c4: #1E2D4E;
+  --c5: #243560;
+  --c6: #2A3D70;
+  --c7: #304585;
+
+  --accent: #3B7DFF;
+  --accent-hover: #2B6EE8;
+  --accent-light: rgba(59, 125, 255, 0.15);
+
+  --text-primary: #F1F5FE;
+  --text-secondary: #8899BB;
+  --text-muted: #4A5A7A;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --border-focus: rgba(59, 125, 255, 0.4);
+
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --error: #EF4444;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--c0);
+  color: var(--text-primary);
+  font-family: 'Inter', sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Rajdhani', sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--c1); }
+::-webkit-scrollbar-thumb { background: var(--c4); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--c5); }
+
+/* Glass card */
+.glass {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Focus ring */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
