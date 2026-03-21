@@ -73,9 +73,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, sent: 0 })
   }
 
-  // Deduplicate tokens
+  // Deduplicate tokens (Array.from avoids downlevelIteration requirement)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const uniqueTokens = [...new Set((tokens as any[]).map(t => t.expo_push_token as string))]
+  const uniqueTokens = Array.from(new Set((tokens as any[]).map(t => t.expo_push_token as string)))
 
   const messages: ExpoPushMessage[] = uniqueTokens.map(token => ({
     to: token,
