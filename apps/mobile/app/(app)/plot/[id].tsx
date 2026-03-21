@@ -3,6 +3,7 @@ import {
   View,
   Text,
   ScrollView,
+  TextInput,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
@@ -10,6 +11,7 @@ import {
   Linking,
   Alert,
 } from 'react-native'
+import ScoringModal from '../../../screens/ScoringModal'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
@@ -21,7 +23,7 @@ import {
   SOURCE_LABELS,
   RISK_COLORS, RISK_LABELS,
 } from '@de/ui'
-import type { Plot, PlotAiReport, PlotScore, Verdict } from '@de/db'
+import type { Plot, PlotAiReport, PlotScore, PlotNote, PlotContact, ContactLog, ContactLogType, Verdict } from '@de/db'
 import { VERDICT_COLORS, VERDICT_LABELS } from '@de/ui'
 
 type Tab = 'info' | 'ai' | 'notes' | 'contacts'
@@ -50,6 +52,7 @@ export default function PlotDetailScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('info')
   const [advancingStatus, setAdvancingStatus] = useState(false)
+  const [showScoring, setShowScoring] = useState(false)
 
   useEffect(() => {
     if (id) loadPlot()
@@ -269,8 +272,8 @@ export default function PlotDetailScreen() {
           <View style={styles.tabContent}>
             {activeTab === 'info' && <InfoTab plot={plot} />}
             {activeTab === 'ai' && <AITab aiReport={aiReport} isProcessing={!plot.ai_processed_at} />}
-            {activeTab === 'notes' && <PlaceholderTab icon="📝" title="Notatki" subtitle="Sprint 2" />}
-            {activeTab === 'contacts' && <PlaceholderTab icon="📞" title="Kontakty" subtitle="Sprint 2" />}
+            {activeTab === 'notes' && <NotesTab plotId={plot.id} />}
+            {activeTab === 'contacts' && <ContactsTab plotId={plot.id} workspaceId={workspaceCtx.workspace!.id} />}
           </View>
         </ScrollView>
 
@@ -280,6 +283,18 @@ export default function PlotDetailScreen() {
             <TouchableOpacity style={styles.rejectBtn} onPress={rejectPlot}>
               <Ionicons name="close" size={20} color={COLORS.error} />
             </TouchableOpacity>
+
+            {/* Score button */}
+            <TouchableOpacity
+              style={styles.scoreBtn}
+              onPress={() => setShowScoring(true)}
+            >
+              <Ionicons name="star-outline" size={16} color={COLORS.accent} />
+              <Text style={styles.scoreBtnText}>
+                {score?.score_shared != null ? score.score_shared.toFixed(1) : 'Oceń'}
+              </Text>
+            </TouchableOpacity>
+
             {nextStatusLabel && (
               <TouchableOpacity
                 style={[styles.advanceBtn, advancingStatus && { opacity: 0.7 }]}
@@ -289,14 +304,20 @@ export default function PlotDetailScreen() {
                 {advancingStatus ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <>
-                    <Text style={styles.advanceBtnText}>→ {nextStatusLabel}</Text>
-                  </>
+                  <Text style={styles.advanceBtnText}>→ {nextStatusLabel}</Text>
                 )}
               </TouchableOpacity>
             )}
           </View>
         )}
+
+        {/* Scoring Modal */}
+        <ScoringModal
+          plot={plot}
+          visible={showScoring}
+          onClose={() => setShowScoring(false)}
+          onSaved={loadPlot}
+        />
       </SafeAreaView>
     </>
   )
@@ -447,6 +468,338 @@ function PlaceholderTab({ icon, title, subtitle }: { icon: string; title: string
       <Text style={styles.placeholderIcon}>{icon}</Text>
       <Text style={styles.placeholderTitle}>{title}</Text>
       <Text style={styles.placeholderSub}>Dostępne w {subtitle}</Text>
+    </View>
+  )
+}
+
+// ─── NotesTab ─────────────────────────────────────────────────────────────────
+
+function NotesTab({ plotId }: { plotId: string }) {
+  const { workspaceCtx, user } = useAuth()
+  const [notes, setNotes] = useState<PlotNote[]>([])
+  const [loading, setLoading] = useState(true)
+  const [newText, setNewText] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { loadNotes() }, [plotId])
+
+  async function loadNotes() {
+    setLoading(true)
+    const { data } = await supabase
+      .from('plot_notes')
+      .select('*')
+      .eq('plot_id', plotId)
+      .order('created_at', { ascending: false })
+    setNotes((data as PlotNote[]) ?? [])
+    setLoading(false)
+  }
+
+  async function addNote() {
+    if (!newText.trim()) return
+    setSaving(true)
+    await supabase.from('plot_notes').insert({
+      plot_id: plotId,
+      workspace_id: workspaceCtx.workspace!.id,
+      user_id: user!.id,
+      content: newText.trim(),
+      is_voice: false,
+    })
+    setNewText('')
+    setSaving(false)
+    loadNotes()
+  }
+
+  async function deleteNote(id: string) {
+    Alert.alert('Usuń notatkę', 'Czy na pewno usunąć tę notatkę?', [
+      { text: 'Anuluj', style: 'cancel' },
+      {
+        text: 'Usuń', style: 'destructive',
+        onPress: async () => {
+          await supabase.from('plot_notes').delete().eq('id', id)
+          loadNotes()
+        },
+      },
+    ])
+  }
+
+  if (loading) return <ActivityIndicator color={COLORS.accent} style={{ marginTop: 24 }} />
+
+  return (
+    <View style={styles.noteContainer}>
+      {/* Add note */}
+      <View style={styles.noteInputRow}>
+        <TextInput
+          style={styles.noteInput}
+          placeholder="Napisz notatkę..."
+          placeholderTextColor={COLORS.textMuted}
+          value={newText}
+          onChangeText={setNewText}
+          multiline
+          maxLength={1000}
+        />
+        <TouchableOpacity
+          style={[styles.noteAddBtn, (!newText.trim() || saving) && { opacity: 0.5 }]}
+          onPress={addNote}
+          disabled={!newText.trim() || saving}
+        >
+          {saving
+            ? <ActivityIndicator size="small" color="#fff" />
+            : <Ionicons name="add" size={20} color="#fff" />
+          }
+        </TouchableOpacity>
+      </View>
+
+      {notes.length === 0 ? (
+        <View style={styles.notesEmpty}>
+          <Text style={styles.notesEmptyText}>Brak notatek. Dodaj pierwszą!</Text>
+        </View>
+      ) : (
+        notes.map(note => (
+          <View key={note.id} style={styles.noteCard}>
+            <Text style={styles.noteContent}>{note.content}</Text>
+            <View style={styles.noteFooter}>
+              <Text style={styles.noteMeta}>
+                {new Date(note.created_at).toLocaleDateString('pl-PL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </Text>
+              <TouchableOpacity onPress={() => deleteNote(note.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="trash-outline" size={14} color={COLORS.error} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))
+      )}
+    </View>
+  )
+}
+
+// ─── ContactsTab ──────────────────────────────────────────────────────────────
+
+const LOG_TYPE_ICONS: Record<ContactLogType, string> = {
+  call: '📞', sms: '💬', messenger: '📘', whatsapp: '🟢',
+  email: '✉️', visit: '🏡', other: '📌',
+}
+const LOG_TYPE_LABELS: Record<ContactLogType, string> = {
+  call: 'Telefon', sms: 'SMS', messenger: 'Messenger', whatsapp: 'WhatsApp',
+  email: 'Email', visit: 'Wizyta', other: 'Inne',
+}
+
+function ContactsTab({ plotId, workspaceId }: { plotId: string; workspaceId: string }) {
+  const { user } = useAuth()
+  const [contacts, setContacts] = useState<(PlotContact & { contact_logs?: ContactLog[] })[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showAdd, setShowAdd] = useState(false)
+  const [addName, setAddName] = useState('')
+  const [addPhone, setAddPhone] = useState('')
+  const [addType, setAddType] = useState<'owner' | 'agent' | 'unknown'>('owner')
+  const [savingContact, setSavingContact] = useState(false)
+  const [expandedContact, setExpandedContact] = useState<string | null>(null)
+  const [logSummary, setLogSummary] = useState('')
+  const [logType, setLogType] = useState<ContactLogType>('call')
+  const [savingLog, setSavingLog] = useState(false)
+
+  useEffect(() => { loadContacts() }, [plotId])
+
+  async function loadContacts() {
+    setLoading(true)
+    const { data } = await supabase
+      .from('plot_contacts')
+      .select('*, contact_logs(*)')
+      .eq('plot_id', plotId)
+      .order('created_at', { ascending: true })
+    setContacts((data as any) ?? [])
+    setLoading(false)
+  }
+
+  async function addContact() {
+    if (!addName.trim() && !addPhone.trim()) return
+    setSavingContact(true)
+    await supabase.from('plot_contacts').insert({
+      plot_id: plotId,
+      workspace_id: workspaceId,
+      name: addName.trim() || null,
+      phone: addPhone.trim() || null,
+      contact_type: addType,
+    })
+    setAddName(''); setAddPhone(''); setShowAdd(false)
+    setSavingContact(false)
+    loadContacts()
+  }
+
+  async function addLog(contactId: string) {
+    if (!logSummary.trim()) return
+    setSavingLog(true)
+    await supabase.from('contact_logs').insert({
+      contact_id: contactId,
+      plot_id: plotId,
+      log_type: logType,
+      summary: logSummary.trim(),
+      happened_at: new Date().toISOString(),
+      created_by: user!.id,
+    })
+    setLogSummary('')
+    setSavingLog(false)
+    loadContacts()
+  }
+
+  async function callPhone(phone: string) {
+    const url = `tel:${phone.replace(/\s/g, '')}`
+    const ok = await Linking.canOpenURL(url)
+    if (ok) Linking.openURL(url)
+  }
+
+  if (loading) return <ActivityIndicator color={COLORS.accent} style={{ marginTop: 24 }} />
+
+  return (
+    <View style={styles.contactContainer}>
+      {/* Contact list */}
+      {contacts.map(contact => {
+        const isExpanded = expandedContact === contact.id
+        const logs = (contact.contact_logs ?? []).sort((a, b) =>
+          new Date(b.happened_at).getTime() - new Date(a.happened_at).getTime()
+        )
+        return (
+          <View key={contact.id} style={styles.contactCard}>
+            <TouchableOpacity
+              style={styles.contactHeader}
+              onPress={() => setExpandedContact(isExpanded ? null : contact.id)}
+            >
+              <View style={styles.contactAvatar}>
+                <Text style={styles.contactAvatarText}>
+                  {(contact.name ?? '?').charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.contactInfo}>
+                <Text style={styles.contactName}>{contact.name ?? 'Nieznany'}</Text>
+                <Text style={styles.contactMeta}>
+                  {contact.contact_type === 'owner' ? 'Właściciel' : contact.contact_type === 'agent' ? 'Agent' : 'Nieznany'}{contact.phone ? ` · ${contact.phone}` : ''}
+                </Text>
+              </View>
+              <View style={styles.contactActions}>
+                {contact.phone && (
+                  <TouchableOpacity
+                    onPress={() => callPhone(contact.phone!)}
+                    style={styles.callBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="call" size={16} color={COLORS.success} />
+                  </TouchableOpacity>
+                )}
+                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={COLORS.textMuted} />
+              </View>
+            </TouchableOpacity>
+
+            {isExpanded && (
+              <View style={styles.contactExpanded}>
+                {/* Log list */}
+                {logs.length > 0 && (
+                  <View style={styles.logList}>
+                    {logs.map(log => (
+                      <View key={log.id} style={styles.logItem}>
+                        <Text style={styles.logIcon}>{LOG_TYPE_ICONS[log.log_type]}</Text>
+                        <View style={styles.logContent}>
+                          <Text style={styles.logSummary}>{log.summary}</Text>
+                          <Text style={styles.logMeta}>
+                            {LOG_TYPE_LABELS[log.log_type]} · {new Date(log.happened_at).toLocaleDateString('pl-PL')}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Add log */}
+                <View style={styles.addLogRow}>
+                  <View style={styles.logTypeRow}>
+                    {(['call', 'sms', 'visit', 'email'] as ContactLogType[]).map(t => (
+                      <TouchableOpacity
+                        key={t}
+                        style={[styles.logTypeBtn, logType === t && styles.logTypeBtnActive]}
+                        onPress={() => setLogType(t)}
+                      >
+                        <Text style={styles.logTypeBtnText}>{LOG_TYPE_ICONS[t]}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <View style={styles.logInputRow}>
+                    <TextInput
+                      style={styles.logInput}
+                      placeholder="Co ustalono..."
+                      placeholderTextColor={COLORS.textMuted}
+                      value={logSummary}
+                      onChangeText={setLogSummary}
+                    />
+                    <TouchableOpacity
+                      style={[styles.noteAddBtn, (!logSummary.trim() || savingLog) && { opacity: 0.5 }]}
+                      onPress={() => addLog(contact.id)}
+                      disabled={!logSummary.trim() || savingLog}
+                    >
+                      {savingLog
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Ionicons name="add" size={20} color="#fff" />
+                      }
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+          </View>
+        )
+      })}
+
+      {/* Add contact */}
+      {showAdd ? (
+        <View style={styles.addContactForm}>
+          <Text style={styles.addContactTitle}>Nowy kontakt</Text>
+          <TextInput
+            style={styles.addContactInput}
+            placeholder="Imię / Nazwisko"
+            placeholderTextColor={COLORS.textMuted}
+            value={addName}
+            onChangeText={setAddName}
+          />
+          <TextInput
+            style={styles.addContactInput}
+            placeholder="Telefon"
+            placeholderTextColor={COLORS.textMuted}
+            value={addPhone}
+            onChangeText={setAddPhone}
+            keyboardType="phone-pad"
+          />
+          <View style={styles.contactTypeRow}>
+            {(['owner', 'agent', 'unknown'] as const).map(t => (
+              <TouchableOpacity
+                key={t}
+                style={[styles.contactTypeBtn, addType === t && styles.contactTypeBtnActive]}
+                onPress={() => setAddType(t)}
+              >
+                <Text style={[styles.contactTypeBtnText, addType === t && styles.contactTypeBtnTextActive]}>
+                  {t === 'owner' ? 'Właściciel' : t === 'agent' ? 'Agent' : 'Inny'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.addContactBtns}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowAdd(false)}>
+              <Text style={styles.cancelBtnText}>Anuluj</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.saveContactBtn, (!addName.trim() && !addPhone.trim()) && { opacity: 0.5 }]}
+              onPress={addContact}
+              disabled={(!addName.trim() && !addPhone.trim()) || savingContact}
+            >
+              {savingContact
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={styles.saveContactBtnText}>Zapisz</Text>
+              }
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.addContactBtn} onPress={() => setShowAdd(true)}>
+          <Ionicons name="person-add-outline" size={16} color={COLORS.accent} />
+          <Text style={styles.addContactBtnText}>Dodaj kontakt</Text>
+        </TouchableOpacity>
+      )}
     </View>
   )
 }
@@ -676,4 +1029,209 @@ const styles = StyleSheet.create({
     fontWeight: TYPOGRAPHY.weights.semibold,
     letterSpacing: 0.5,
   },
+  scoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: SPACING.base,
+    height: 50,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: COLORS.accent + '60',
+    backgroundColor: COLORS.accentLight,
+  },
+  scoreBtnText: {
+    color: COLORS.accent,
+    fontFamily: TYPOGRAPHY.fontHeading,
+    fontSize: TYPOGRAPHY.sizes.sm,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+  },
+
+  // ── Notes tab ──
+  noteContainer: { gap: SPACING.md },
+  noteInputRow: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'flex-end' },
+  noteInput: {
+    flex: 1,
+    backgroundColor: COLORS.c1,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADII.md,
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.sm,
+    color: COLORS.textPrimary,
+    fontSize: TYPOGRAPHY.sizes.sm,
+    minHeight: 44,
+    maxHeight: 120,
+  },
+  noteAddBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: RADII.md,
+    backgroundColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notesEmpty: { alignItems: 'center', paddingVertical: SPACING['2xl'] },
+  notesEmptyText: { color: COLORS.textMuted, fontSize: TYPOGRAPHY.sizes.sm },
+  noteCard: {
+    backgroundColor: COLORS.c1,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.base,
+    gap: SPACING.sm,
+  },
+  noteContent: { color: COLORS.textPrimary, fontSize: TYPOGRAPHY.sizes.sm, lineHeight: 20 },
+  noteFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  noteMeta: { color: COLORS.textMuted, fontSize: 11 },
+
+  // ── Contacts tab ──
+  contactContainer: { gap: SPACING.md },
+  contactCard: {
+    backgroundColor: COLORS.c1,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+  },
+  contactHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.base,
+    gap: SPACING.md,
+  },
+  contactAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.accentLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contactAvatarText: {
+    color: COLORS.accent,
+    fontFamily: TYPOGRAPHY.fontHeading,
+    fontWeight: TYPOGRAPHY.weights.bold,
+    fontSize: TYPOGRAPHY.sizes.base,
+  },
+  contactInfo: { flex: 1 },
+  contactName: { color: COLORS.textPrimary, fontSize: TYPOGRAPHY.sizes.base, fontWeight: TYPOGRAPHY.weights.semibold },
+  contactMeta: { color: COLORS.textMuted, fontSize: TYPOGRAPHY.sizes.xs, marginTop: 2 },
+  contactActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  callBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.success + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contactExpanded: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    padding: SPACING.base,
+    gap: SPACING.md,
+  },
+  logList: { gap: SPACING.sm },
+  logItem: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'flex-start' },
+  logIcon: { fontSize: 16, marginTop: 1 },
+  logContent: { flex: 1, gap: 2 },
+  logSummary: { color: COLORS.textPrimary, fontSize: TYPOGRAPHY.sizes.sm },
+  logMeta: { color: COLORS.textMuted, fontSize: 11 },
+  addLogRow: { gap: SPACING.sm },
+  logTypeRow: { flexDirection: 'row', gap: SPACING.sm },
+  logTypeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: RADII.sm,
+    backgroundColor: COLORS.c2,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logTypeBtnActive: { borderColor: COLORS.accent, backgroundColor: COLORS.accentLight },
+  logTypeBtnText: { fontSize: 16 },
+  logInputRow: { flexDirection: 'row', gap: SPACING.sm, alignItems: 'center' },
+  logInput: {
+    flex: 1,
+    backgroundColor: COLORS.c0,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADII.md,
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.sm,
+    color: COLORS.textPrimary,
+    fontSize: TYPOGRAPHY.sizes.sm,
+    height: 44,
+  },
+  addContactBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    justifyContent: 'center',
+    paddingVertical: SPACING.base,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: COLORS.accent + '60',
+  },
+  addContactBtnText: { color: COLORS.accent, fontSize: TYPOGRAPHY.sizes.sm, fontWeight: TYPOGRAPHY.weights.medium },
+  addContactForm: {
+    backgroundColor: COLORS.c1,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.base,
+    gap: SPACING.md,
+  },
+  addContactTitle: {
+    color: COLORS.textPrimary,
+    fontFamily: TYPOGRAPHY.fontHeading,
+    fontWeight: TYPOGRAPHY.weights.semibold,
+    fontSize: TYPOGRAPHY.sizes.base,
+  },
+  addContactInput: {
+    backgroundColor: COLORS.c0,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADII.md,
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.sm,
+    color: COLORS.textPrimary,
+    fontSize: TYPOGRAPHY.sizes.sm,
+    height: 44,
+  },
+  contactTypeRow: { flexDirection: 'row', gap: SPACING.sm },
+  contactTypeBtn: {
+    flex: 1,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADII.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+  },
+  contactTypeBtnActive: { borderColor: COLORS.accent, backgroundColor: COLORS.accentLight },
+  contactTypeBtnText: { color: COLORS.textMuted, fontSize: TYPOGRAPHY.sizes.xs },
+  contactTypeBtnTextActive: { color: COLORS.accent, fontWeight: TYPOGRAPHY.weights.semibold },
+  addContactBtns: { flexDirection: 'row', gap: SPACING.sm },
+  cancelBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtnText: { color: COLORS.textSecondary, fontSize: TYPOGRAPHY.sizes.sm },
+  saveContactBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: RADII.md,
+    backgroundColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveContactBtnText: { color: '#fff', fontWeight: TYPOGRAPHY.weights.semibold, fontSize: TYPOGRAPHY.sizes.sm },
 })
