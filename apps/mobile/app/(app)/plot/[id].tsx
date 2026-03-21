@@ -23,10 +23,10 @@ import {
   SOURCE_LABELS,
   RISK_COLORS, RISK_LABELS,
 } from '@de/ui'
-import type { Plot, PlotAiReport, PlotScore, PlotNote, PlotContact, ContactLog, ContactLogType, Verdict } from '@de/db'
+import type { Plot, PlotAiReport, PlotScore, PlotNote, PlotContact, ContactLog, ContactLogType, Verdict, PlotEnrichment } from '@de/db'
 import { VERDICT_COLORS, VERDICT_LABELS } from '@de/ui'
 
-type Tab = 'info' | 'ai' | 'notes' | 'contacts'
+type Tab = 'info' | 'ai' | 'enrichment' | 'notes' | 'contacts'
 
 interface FullPlot extends Plot {
   plot_scores?: PlotScore[]
@@ -50,6 +50,7 @@ export default function PlotDetailScreen() {
   const [plot, setPlot] = useState<FullPlot | null>(null)
   const [loading, setLoading] = useState(true)
   const [aiReport, setAiReport] = useState<PlotAiReport | null>(null)
+  const [enrichment, setEnrichment] = useState<PlotEnrichment | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('info')
   const [advancingStatus, setAdvancingStatus] = useState(false)
@@ -102,6 +103,17 @@ export default function PlotDetailScreen() {
       .single()
 
     if (data) setPlot(data as FullPlot)
+
+    // Load enrichment separately
+    const { data: enrichData } = await supabase
+      .from('plot_enrichments')
+      .select('*')
+      .eq('plot_id', id as string)
+      .order('enriched_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (enrichData) setEnrichment(enrichData as PlotEnrichment)
+
     setLoading(false)
   }
 
@@ -266,14 +278,14 @@ export default function PlotDetailScreen() {
 
           {/* Tabs */}
           <View style={styles.tabs}>
-            {(['info', 'ai', 'notes', 'contacts'] as Tab[]).map((tab) => (
+            {(['info', 'ai', 'enrichment', 'notes', 'contacts'] as Tab[]).map((tab) => (
               <TouchableOpacity
                 key={tab}
                 style={[styles.tab, activeTab === tab && styles.tabActive]}
                 onPress={() => setActiveTab(tab)}
               >
                 <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                  {tab === 'info' ? 'Info' : tab === 'ai' ? 'AI ✨' : tab === 'notes' ? 'Notatki' : 'Kontakty'}
+                  {tab === 'info' ? 'Info' : tab === 'ai' ? 'AI ✨' : tab === 'enrichment' ? 'Wycena' : tab === 'notes' ? 'Notatki' : 'Kontakty'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -283,6 +295,7 @@ export default function PlotDetailScreen() {
           <View style={styles.tabContent}>
             {activeTab === 'info' && <InfoTab plot={plot} />}
             {activeTab === 'ai' && <AITab aiReport={aiReport} plotId={plot.id} onReportUpdated={(r) => setAiReport(r)} />}
+            {activeTab === 'enrichment' && <EnrichmentTab enrichment={enrichment} plotId={plot.id} onEnrichmentUpdated={(e) => setEnrichment(e)} />}
             {activeTab === 'notes' && <NotesTab plotId={plot.id} />}
             {activeTab === 'contacts' && <ContactsTab plotId={plot.id} workspaceId={workspaceCtx.workspace!.id} />}
           </View>
@@ -913,6 +926,240 @@ function ContactsTab({ plotId, workspaceId }: { plotId: string; workspaceId: str
     </View>
   )
 }
+
+// ─── EnrichmentTab ──────────────────────────────────────────────────────────
+
+const AI_ENRICH_URL = process.env.EXPO_PUBLIC_WEB_URL || 'https://dzialkometr.netlify.app'
+
+function EnrichmentTab({
+  enrichment,
+  plotId,
+  onEnrichmentUpdated,
+}: {
+  enrichment: PlotEnrichment | null
+  plotId: string
+  onEnrichmentUpdated: (e: PlotEnrichment) => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function runEnrichment(forceRefresh = false) {
+    setLoading(true)
+    setError(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Brak sesji')
+      const res = await fetch(`${AI_ENRICH_URL}/api/enrichment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ plot_id: plotId, force_refresh: forceRefresh }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Błąd serwera')
+      onEnrichmentUpdated(json.enrichment as PlotEnrichment)
+    } catch (e: unknown) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <View style={enrichStyles.center}>
+        <ActivityIndicator size="large" color={COLORS.accent} />
+        <Text style={enrichStyles.loadingText}>Pobieranie danych wzbogacenia…</Text>
+      </View>
+    )
+  }
+
+  if (!enrichment) {
+    return (
+      <View style={enrichStyles.center}>
+        <Text style={enrichStyles.emptyIcon}>📊</Text>
+        <Text style={enrichStyles.emptyTitle}>Brak danych wzbogacenia</Text>
+        <Text style={enrichStyles.emptySub}>Wygeneruj szacunkowe dane o cenie, ryzyku powodziowym, liniach energetycznych i czasie dojazdu.</Text>
+        {error && <Text style={enrichStyles.errorText}>{error}</Text>}
+        <TouchableOpacity style={enrichStyles.analyzeBtn} onPress={() => runEnrichment(false)}>
+          <Text style={enrichStyles.analyzeBtnText}>📊 Wzbogać dane</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
+  const e = enrichment
+
+  // Price position badge
+  const medM2 = e.rcn_median_price_m2
+  const p25 = e.rcn_p25_price_m2
+  const p75 = e.rcn_p75_price_m2
+
+  // Flood badge
+  const floodLevel = e.isok_flood_risk_level
+  const floodLabel = floodLevel === 'none' ? 'Poza strefą' : floodLevel === 'medium' ? 'Strefa Q100' : 'Wysoke ryzyko'
+  const floodColor = floodLevel === 'none' ? COLORS.success || '#22c55e' : floodLevel === 'medium' ? '#f59e0b' : '#ef4444'
+
+  return (
+    <View style={enrichStyles.container}>
+      {/* RCN Price Stats */}
+      <View style={enrichStyles.card}>
+        <Text style={enrichStyles.cardTitle}>📈 Statystyki cen RCN</Text>
+        <Text style={enrichStyles.cardSub}>Rejestr Cen Nieruchomości · promień {e.rcn_radius_km} km · {e.rcn_comparables_count} porównań</Text>
+        <View style={enrichStyles.statsRow}>
+          <View style={enrichStyles.statBox}>
+            <Text style={enrichStyles.statLabel}>P25</Text>
+            <Text style={enrichStyles.statValue}>{p25 ? `${p25.toLocaleString('pl-PL')} zł` : '–'}</Text>
+            <Text style={enrichStyles.statSub}>za m²</Text>
+          </View>
+          <View style={[enrichStyles.statBox, enrichStyles.statBoxMedian]}>
+            <Text style={enrichStyles.statLabel}>Mediana</Text>
+            <Text style={[enrichStyles.statValue, { color: COLORS.accent }]}>{medM2 ? `${medM2.toLocaleString('pl-PL')} zł` : '–'}</Text>
+            <Text style={enrichStyles.statSub}>za m²</Text>
+          </View>
+          <View style={enrichStyles.statBox}>
+            <Text style={enrichStyles.statLabel}>P75</Text>
+            <Text style={enrichStyles.statValue}>{p75 ? `${p75.toLocaleString('pl-PL')} zł` : '–'}</Text>
+            <Text style={enrichStyles.statSub}>za m²</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* ISOK Flood */}
+      <View style={enrichStyles.card}>
+        <View style={enrichStyles.rowBetween}>
+          <Text style={enrichStyles.cardTitle}>🌊 Ryzyko powodziowe ISOK</Text>
+          <View style={[enrichStyles.badge, { backgroundColor: floodColor + '22', borderColor: floodColor }]}>
+            <Text style={[enrichStyles.badgeText, { color: floodColor }]}>{floodLabel}</Text>
+          </View>
+        </View>
+        <Text style={enrichStyles.cardSub}>Strefa: {e.isok_flood_zone || 'brak danych'}</Text>
+      </View>
+
+      {/* PSE Power Lines */}
+      <View style={enrichStyles.card}>
+        <View style={enrichStyles.rowBetween}>
+          <Text style={enrichStyles.cardTitle}>⚡ Linie energetyczne PSE</Text>
+          <View style={[
+            enrichStyles.badge,
+            e.pse_power_line_nearby
+              ? { backgroundColor: '#f59e0b22', borderColor: '#f59e0b' }
+              : { backgroundColor: '#22c55e22', borderColor: '#22c55e' },
+          ]}>
+            <Text style={[
+              enrichStyles.badgeText,
+              { color: e.pse_power_line_nearby ? '#f59e0b' : '#22c55e' },
+            ]}>
+              {e.pse_power_line_nearby ? `W pobliżu (~${e.pse_power_line_distance_m} m)` : 'Brak w pobliżu'}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Travel Times */}
+      {e.travel_times && e.travel_times.length > 0 && (
+        <View style={enrichStyles.card}>
+          <Text style={enrichStyles.cardTitle}>🚗 Czasy dojazdu</Text>
+          {(e.travel_times as Array<{ target_name: string; mode: string; duration_min: number }>).map((t, i) => (
+            <View key={i} style={enrichStyles.travelRow}>
+              <Text style={enrichStyles.travelDest}>{t.target_name}</Text>
+              <Text style={enrichStyles.travelTime}>~{t.duration_min} min</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* POI */}
+      {e.poi_data && (e.poi_data as unknown[]).length > 0 && (
+        <View style={enrichStyles.card}>
+          <Text style={enrichStyles.cardTitle}>📍 Punkty w pobliżu (POI)</Text>
+          {(e.poi_data as Array<{ name: string; category: string; distance_m: number }>).slice(0, 5).map((p, i) => (
+            <View key={i} style={enrichStyles.poiRow}>
+              <Text style={enrichStyles.poiName}>{p.name}</Text>
+              <Text style={enrichStyles.poiDist}>{p.distance_m < 1000 ? `${p.distance_m} m` : `${(p.distance_m / 1000).toFixed(1)} km`}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Refresh */}
+      {error && <Text style={enrichStyles.errorText}>{error}</Text>}
+      <TouchableOpacity style={enrichStyles.refreshBtn} onPress={() => runEnrichment(true)}>
+        <Text style={enrichStyles.refreshBtnText}>↻ Odśwież dane</Text>
+      </TouchableOpacity>
+      <Text style={enrichStyles.disclaimer}>Dane szacunkowe na podstawie dostępnych źródeł. Nie zastępują operatu szacunkowego.</Text>
+      <View style={{ height: 32 }} />
+    </View>
+  )
+}
+
+const enrichStyles = StyleSheet.create({
+  container: { padding: SPACING.base, gap: SPACING.md },
+  center: { padding: SPACING.xl, alignItems: 'center', gap: SPACING.md },
+  loadingText: { color: COLORS.textSecondary, fontSize: TYPOGRAPHY.sizes.sm },
+  emptyIcon: { fontSize: 40 },
+  emptyTitle: { color: COLORS.textPrimary, fontSize: TYPOGRAPHY.sizes.lg, fontWeight: TYPOGRAPHY.weights.semibold },
+  emptySub: { color: COLORS.textSecondary, fontSize: TYPOGRAPHY.sizes.sm, textAlign: 'center' },
+  errorText: { color: '#ef4444', fontSize: TYPOGRAPHY.sizes.sm },
+  analyzeBtn: {
+    marginTop: SPACING.md,
+    backgroundColor: COLORS.accent,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.base,
+    borderRadius: RADII.md,
+  },
+  analyzeBtnText: { color: '#fff', fontWeight: TYPOGRAPHY.weights.semibold, fontSize: TYPOGRAPHY.sizes.base },
+  card: {
+    backgroundColor: COLORS.c1,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.base,
+    gap: SPACING.sm,
+  },
+  cardTitle: { color: COLORS.textPrimary, fontWeight: TYPOGRAPHY.weights.semibold, fontSize: TYPOGRAPHY.sizes.sm },
+  cardSub: { color: COLORS.textMuted, fontSize: TYPOGRAPHY.sizes.xs },
+  statsRow: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.xs },
+  statBox: {
+    flex: 1,
+    backgroundColor: COLORS.c2,
+    borderRadius: RADII.sm,
+    padding: SPACING.sm,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  statBoxMedian: { borderColor: COLORS.accent + '80' },
+  statLabel: { color: COLORS.textMuted, fontSize: TYPOGRAPHY.sizes.xs, fontWeight: TYPOGRAPHY.weights.medium },
+  statValue: { color: COLORS.textPrimary, fontWeight: TYPOGRAPHY.weights.bold, fontSize: TYPOGRAPHY.sizes.sm },
+  statSub: { color: COLORS.textMuted, fontSize: 10 },
+  rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  badge: {
+    borderRadius: RADII.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+    borderWidth: 1,
+  },
+  badgeText: { fontSize: TYPOGRAPHY.sizes.xs, fontWeight: TYPOGRAPHY.weights.semibold },
+  travelRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
+  travelDest: { color: COLORS.textPrimary, fontSize: TYPOGRAPHY.sizes.sm },
+  travelTime: { color: COLORS.accent, fontWeight: TYPOGRAPHY.weights.medium, fontSize: TYPOGRAPHY.sizes.sm },
+  poiRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 },
+  poiName: { color: COLORS.textPrimary, fontSize: TYPOGRAPHY.sizes.sm },
+  poiDist: { color: COLORS.textMuted, fontSize: TYPOGRAPHY.sizes.sm },
+  refreshBtn: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADII.md,
+    paddingVertical: SPACING.sm,
+    alignItems: 'center',
+  },
+  refreshBtnText: { color: COLORS.textSecondary, fontSize: TYPOGRAPHY.sizes.sm },
+  disclaimer: { color: COLORS.textMuted, fontSize: 10, textAlign: 'center', paddingHorizontal: SPACING.md },
+})
+
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
