@@ -24,6 +24,7 @@ import {
   RISK_COLORS, RISK_LABELS,
 } from '@de/ui'
 import type { Plot, PlotAiReport, PlotScore, PlotNote, PlotContact, ContactLog, ContactLogType, Verdict, PlotEnrichment } from '@de/db'
+import { notifyWorkspace } from '../../../lib/pushNotifications'
 import { VERDICT_COLORS, VERDICT_LABELS } from '@de/ui'
 
 type Tab = 'info' | 'ai' | 'enrichment' | 'notes' | 'contacts'
@@ -131,6 +132,15 @@ export default function PlotDetailScreen() {
     await supabase.from('plots').update({ status: next }).eq('id', plot.id)
     setAdvancingStatus(false)
     await loadPlot()
+    // Notify partner (fire-and-forget)
+    if (workspaceCtx.workspace?.id) {
+      notifyWorkspace(
+        workspaceCtx.workspace.id,
+        '📍 Status zmieniony',
+        `${plot.title ?? 'Działka'} → ${next}`,
+        { plot_id: plot.id }
+      )
+    }
   }
 
   async function rejectPlot() {

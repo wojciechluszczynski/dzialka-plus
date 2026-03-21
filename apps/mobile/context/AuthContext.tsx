@@ -26,13 +26,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Initial session — await workspace before clearing loading flag so
+    // _layout.tsx never routes based on stale null workspace
+    ;(async () => {
+      const { data: { session } } = await supabase.auth.getSession()
       setSession(session)
       setUser(session?.user ?? null)
-      if (session?.user) loadWorkspace(session.user.id)
+      if (session?.user) await loadWorkspace(session.user.id)
       setLoading(false)
-    })
+    })()
 
     // Auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {

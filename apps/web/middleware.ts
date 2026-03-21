@@ -25,7 +25,10 @@ export async function middleware(req: NextRequest) {
   }
 
   // If has session and on auth page → redirect to app
-  if (session && isAuthRoute) {
+  // Exception: workspace-setup must stay reachable for users who just signed in
+  // but have no workspace yet (anonymous or first magic-link login).
+  const isWorkspaceSetup = pathname.startsWith('/auth/workspace-setup')
+  if (session && isAuthRoute && !isWorkspaceSetup) {
     const redirectUrl = req.nextUrl.clone()
     redirectUrl.pathname = '/app'
     return NextResponse.redirect(redirectUrl)

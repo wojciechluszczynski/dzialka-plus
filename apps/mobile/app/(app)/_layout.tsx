@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import { BlurView } from 'expo-blur'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS, TYPOGRAPHY, SPACING, RADII } from '@de/ui'
 import QuickAddModal from '../../screens/QuickAddModal'
+import { useAuth } from '../../context/AuthContext'
+import { registerPushToken } from '../../lib/pushNotifications'
 
 // ─── Bottom Nav Tab Bar ────────────────────────────────────────────────────────
 
@@ -113,6 +115,15 @@ function BottomTabBar() {
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
+  const { workspaceCtx } = useAuth()
+
+  // Register push token once workspace is ready
+  useEffect(() => {
+    if (workspaceCtx.workspace?.id) {
+      registerPushToken(workspaceCtx.workspace.id).catch(() => {/* non-critical */})
+    }
+  }, [workspaceCtx.workspace?.id])
+
   return (
     <Tabs
       tabBar={() => <BottomTabBar />}

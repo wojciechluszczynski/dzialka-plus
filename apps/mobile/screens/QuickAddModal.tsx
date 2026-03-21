@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { notifyWorkspace } from '../lib/pushNotifications'
 import { COLORS, TYPOGRAPHY, SPACING, RADII, SOURCE_LABELS } from '@de/ui'
 
 interface Props {
@@ -114,7 +115,15 @@ export default function QuickAddModal({ onClose, prefillUrl }: Props) {
       // 5. Trigger AI processing (fire-and-forget)
       triggerAIProcessing(plot.id)
 
-      // 6. Navigate to draft screen
+      // 6. Notify workspace partner (fire-and-forget)
+      notifyWorkspace(
+        workspaceCtx.workspace!.id,
+        '📍 Nowa działka dodana',
+        plot.title ?? 'Działka bez tytułu',
+        { plot_id: plot.id }
+      )
+
+      // 7. Navigate to draft screen
       onClose()
       router.push(`/(app)/plot/${plot.id}` as never)
     } catch (err: unknown) {
