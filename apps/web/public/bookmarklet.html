@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Działkometr — Bookmarklet FB</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #F8F9FA; color: #111; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 20px; box-shadow: 0 4px 24px rgba(0,0,0,0.07); padding: 40px; max-width: 560px; width: 100%; }
+    .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+    .logo-icon { font-size: 28px; }
+    .logo-text { font-size: 22px; font-weight: 700; color: #111; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    p { color: #6b7280; font-size: 15px; line-height: 1.6; margin-bottom: 16px; }
+    .steps { counter-reset: step; list-style: none; margin: 24px 0; }
+    .steps li { counter-increment: step; display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; }
+    .steps li::before { content: counter(step); min-width: 28px; height: 28px; background: #F97316; color: #fff; font-weight: 700; font-size: 13px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .steps li strong { display: block; font-weight: 600; color: #111; margin-bottom: 2px; font-size: 15px; }
+    .steps li span { color: #6b7280; font-size: 13px; line-height: 1.5; }
+    .bookmarklet-wrap { background: #fff7ed; border: 2px dashed #F97316; border-radius: 14px; padding: 24px; text-align: center; margin: 28px 0; }
+    .bookmarklet-wrap p { color: #c2410c; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+    .bm-link { display: inline-block; padding: 14px 28px; background: #1E2B3C; color: #fff; border-radius: 12px; font-weight: 700; font-size: 15px; text-decoration: none; cursor: move; border: 2px solid transparent; transition: border-color 0.2s; }
+    .bm-link:hover { border-color: #F97316; }
+    .note { background: #f9fafb; border-radius: 10px; padding: 14px 16px; font-size: 13px; color: #6b7280; line-height: 1.6; }
+    .note strong { color: #374151; }
+    kbd { display: inline-block; background: #e5e7eb; border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: monospace; color: #374151; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <span class="logo-icon">🏡</span>
+      <span class="logo-text">Działkometr</span>
+    </div>
+
+    <h1>Bookmarklet — dodaj działkę z Facebooka</h1>
+    <p>Jedno kliknięcie gdy oglądasz post na FB. Automatycznie kopiuje tekst ogłoszenia, dodaje działkę do bazy i uruchamia analizę AI.</p>
+
+    <ol class="steps">
+      <li>
+        <div>
+          <strong>Przeciągnij przycisk do paska zakładek</strong>
+          <span>Złap poniższy przycisk i upuść go na pasek zakładek przeglądarki. Jeśli pasek nie jest widoczny: <kbd>Ctrl+Shift+B</kbd> / <kbd>Cmd+Shift+B</kbd></span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Otwórz post z działką na Facebooku</strong>
+          <span>Wejdź w post w grupie lub na marketplace. Upewnij się że treść posta jest widoczna na stronie.</span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Kliknij zakładkę "Dodaj do Działkometr"</strong>
+          <span>Automatycznie wyciągnie tekst posta, URL i przeniesie Cię do appki. AI przeanalizuje ogłoszenie i wypełni pola.</span>
+        </div>
+      </li>
+    </ol>
+
+    <div class="bookmarklet-wrap">
+      <p>⬇ Przeciągnij ten przycisk na pasek zakładek ⬇</p>
+      <a class="bm-link" id="bm" href="">🏡 Dodaj do Działkometr</a>
+    </div>
+
+    <div class="note">
+      <strong>Jak to działa technicznie:</strong> Bookmarklet próbuje wyciągnąć tekst posta z DOM Facebooka (kilka selektorów). Jeśli Facebook zmienił strukturę i tekst nie zostanie znaleziony, aplikacja nadal doda działkę z linkiem — będziesz mógł wkleić treść ręcznie w zakładce Notatki.
+    </div>
+  </div>
+
+  <script>
+    // Build bookmarklet code
+    var APP = 'https://dzialkometr.netlify.app';
+
+    var bmCode = `javascript:(function(){
+  var url = window.location.href;
+  var text = '';
+
+  // Try multiple FB selectors (FB changes DOM frequently)
+  var selectors = [
+    '[data-ad-comet-preview="message"]',
+    '[data-testid="post_message"]',
+    'div[dir="auto"][class*="xdj266r"]',
+    'div[dir="auto"][class*="x11i5rnm"]',
+  ];
+
+  for (var i = 0; i < selectors.length; i++) {
+    var el = document.querySelector(selectors[i]);
+    if (el && el.innerText && el.innerText.length > 30) {
+      text = el.innerText;
+      break;
+    }
+  }
+
+  // Fallback: find longest dir=auto div (usually the post body)
+  if (!text) {
+    var divs = document.querySelectorAll('div[dir="auto"]');
+    var best = '';
+    divs.forEach(function(d) {
+      var t = (d.innerText || '').trim();
+      if (t.length > best.length && t.length < 5000) best = t;
+    });
+    if (best.length > 30) text = best;
+  }
+
+  var params = '?url=' + encodeURIComponent(url);
+  if (text) params += '&text=' + encodeURIComponent(text.slice(0, 3000));
+
+  window.open('${APP}/auto-add' + params, '_blank');
+})();`;
+
+    document.getElementById('bm').href = bmCode;
+  </script>
+</body>
+</html>
