@@ -174,7 +174,7 @@ export default function DashboardView({ workspaceId }: Props) {
           </div>
           <div className="text-3xl font-bold" style={{ color: VERDICT_COLORS.go }}>{byVerdict.go}</div>
           <div className="text-gray-400 text-xs mt-1">
-            {byVerdict.maybe > 0 ? `+ ${byVerdict.maybe} ${VERDICT_LABELS.maybe}` : 'kandydatów'}
+            {byVerdict.maybe > 0 ? `+ ${byVerdict.maybe} ${VERDICT_LABELS.maybe}` : 'propozycji'}
           </div>
         </div>
 
@@ -238,7 +238,7 @@ export default function DashboardView({ workspaceId }: Props) {
         <QuickAction
           icon={Star}
           label="Shortlista"
-          desc="Top kandydaci"
+          desc="Top propozycje"
           href={`/app/workspace/${workspaceId}/shortlist`}
           gradient="linear-gradient(135deg, #F59E0B, #EF4444)"
         />

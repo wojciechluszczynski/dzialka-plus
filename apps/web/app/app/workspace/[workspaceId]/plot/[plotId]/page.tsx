@@ -1,29 +1,14 @@
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
-import { redirect, notFound } from 'next/navigation'
+// No SSR data fetch — PlotDetailView fetches client-side for instant render
 import PlotDetailView from './PlotDetailView'
 
-export default async function PlotDetailPage({
+export default function PlotDetailPage({
   params,
 }: {
   params: { workspaceId: string; plotId: string }
 }) {
-  const supabase = createServerComponentClient({ cookies })
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) redirect('/auth/login')
-
-  const { data: plot } = await supabase
-    .from('plots')
-    .select('*, plot_scores(*), plot_ai_reports(*), plot_notes(*)')
-    .eq('id', params.plotId)
-    .eq('workspace_id', params.workspaceId)
-    .single()
-
-  if (!plot) notFound()
-
   return (
     <PlotDetailView
-      plot={plot}
+      plotId={params.plotId}
       workspaceId={params.workspaceId}
     />
   )
