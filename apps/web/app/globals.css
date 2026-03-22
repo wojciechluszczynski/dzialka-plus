@@ -1,32 +1,50 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --c0: #060C18;
-  --c1: #0A1428;
-  --c2: #0F1C38;
-  --c3: #162040;
-  --c4: #1E2D4E;
-  --c5: #243560;
-  --c6: #2A3D70;
-  --c7: #304585;
+  /* Main content — light */
+  --bg: #F8F9FA;
+  --surface: #FFFFFF;
+  --surface-2: #F1F3F5;
 
-  --accent: #3B7DFF;
-  --accent-hover: #2B6EE8;
-  --accent-light: rgba(59, 125, 255, 0.15);
+  /* Sidebar — dark navy */
+  --sidebar-bg: #1E2B3C;
+  --sidebar-bg-2: #1A2535;
+  --sidebar-hover: rgba(255,255,255,0.06);
+  --sidebar-active: rgba(249,115,22,0.15);
 
-  --text-primary: #F1F5FE;
-  --text-secondary: #8899BB;
-  --text-muted: #4A5A7A;
+  /* Accent — orange */
+  --accent: #F97316;
+  --accent-hover: #EA6C10;
+  --accent-light: rgba(249,115,22,0.12);
 
-  --border: rgba(255, 255, 255, 0.08);
-  --border-focus: rgba(59, 125, 255, 0.4);
+  /* Text — main content */
+  --text-primary: #111827;
+  --text-secondary: #6B7280;
+  --text-muted: #9CA3AF;
+  --text-disabled: #D1D5DB;
 
+  /* Text — sidebar */
+  --sidebar-text: #E2E8F0;
+  --sidebar-text-muted: #94A3B8;
+
+  /* Borders */
+  --border: #E5E7EB;
+  --border-focus: rgba(249,115,22,0.4);
+
+  /* Semantic */
   --success: #22C55E;
   --warning: #F59E0B;
   --error: #EF4444;
+  --info: #3B82F6;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.05);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.05);
 }
 
 * {
@@ -34,27 +52,24 @@
 }
 
 body {
-  background-color: var(--c0);
+  background-color: var(--bg);
   color: var(--text-primary);
   font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-family: 'Rajdhani', sans-serif;
-}
-
-/* Scrollbar */
+/* Scrollbar — light */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--c1); }
-::-webkit-scrollbar-thumb { background: var(--c4); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--c5); }
+::-webkit-scrollbar-track { background: var(--surface-2); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
-/* Glass card */
-.glass {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+/* Card */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
 }
 
 /* Focus ring */

@@ -2,16 +2,20 @@ import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
+const inter = Inter({
+  subsets: ['latin', 'latin-ext'],
+  variable: '--font-inter',
+  weight: ['300', '400', '500', '600', '700'],
+})
 
 export const metadata: Metadata = {
-  title: 'DecisionEngine — Działki',
-  description: 'Twój system decyzyjny dla działek budowlanych',
+  title: 'Działkometr — ocena i porównanie działek budowlanych',
+  description: 'Scoring, ryzyka i cena w jednym miejscu. Od linku do decyzji.',
   manifest: '/manifest.json',
 }
 
 export const viewport: Viewport = {
-  themeColor: '#060C18',
+  themeColor: '#1E2B3C',
 }
 
 export default function RootLayout({
@@ -21,13 +25,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pl" className={inter.variable}>
-      <head>
-        <link
-          href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="bg-c0 text-text-primary antialiased">{children}</body>
+      <body className="antialiased">{children}</body>
     </html>
   )
 }

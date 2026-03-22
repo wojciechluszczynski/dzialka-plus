@@ -8,7 +8,7 @@ export default async function AppPage() {
 
   if (!session) redirect('/auth/login')
 
-  // Check workspace
+  // Check for existing workspace
   const { data: member } = await supabase
     .from('workspace_members')
     .select('workspace_id')
@@ -16,7 +16,19 @@ export default async function AppPage() {
     .limit(1)
     .single()
 
-  if (!member) redirect('/auth/workspace-setup')
+  if (member) {
+    redirect(`/app/workspace/${member.workspace_id}/plots`)
+  }
 
-  redirect(`/app/workspace/${member.workspace_id}/plots`)
+  // Auto-create workspace for shared account — no setup screen
+  const { data: ws } = await supabase
+    .rpc('create_workspace_for_user', { workspace_name: 'Działki Wojtek & Sabina' })
+
+  const wsData = ws as { id: string } | null
+  if (wsData?.id) {
+    redirect(`/app/workspace/${wsData.id}/plots`)
+  }
+
+  // Fallback — should not happen
+  redirect('/auth/login')
 }

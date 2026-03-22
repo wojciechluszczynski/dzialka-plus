@@ -116,10 +116,10 @@ export const COLORS = {
   c6:  '#2A3D70',
   c7:  '#304585',
 
-  // Accent
-  accent:        '#3B7DFF',
-  accentHover:   '#2B6EE8',
-  accentLight:   'rgba(59, 125, 255, 0.15)',
+  // Accent — orange
+  accent:        '#F97316',
+  accentHover:   '#EA6C10',
+  accentLight:   'rgba(249, 115, 22, 0.15)',
 
   // Text
   textPrimary:   '#F1F5FE',
