@@ -81,6 +81,71 @@ async function fetchPortalText(url: string): Promise<string | null> {
   }
 }
 
+// ─── Score computation from risk flags ───────────────────────────────────────
+
+interface RiskFlag {
+  type: string
+  severity: 'low' | 'med' | 'high'
+  label: string
+  confidence: number
+  is_inference: boolean
+}
+
+interface DealBreaker {
+  key: string
+  triggered: boolean
+}
+
+interface RiskFlagsResult {
+  risk_flags?: RiskFlag[]
+  deal_breakers?: DealBreaker[]
+  confidence_overall?: number
+}
+
+function computeScore(risks: RiskFlagsResult, extractionConfidence: number): {
+  score_shared: number
+  dealbreaker_triggered: boolean
+  verdict: 'go' | 'maybe' | 'no'
+} {
+  const flags = risks.risk_flags ?? []
+  const dealBreakers = risks.deal_breakers ?? []
+
+  const dealbreakerTriggered = dealBreakers.some(d => d.triggered)
+
+  // Base score: start at 7.5, reduce for each risk flag weighted by severity
+  let score = 7.5
+  for (const flag of flags) {
+    const weight = flag.confidence ?? 0.7
+    if (flag.severity === 'high') score -= 1.8 * weight
+    else if (flag.severity === 'med') score -= 0.8 * weight
+    else score -= 0.25 * weight
+  }
+
+  // Dealbreaker penalty
+  if (dealbreakerTriggered) score -= 2.5
+
+  // Factor in extraction confidence (if very low data, reduce score slightly)
+  if (extractionConfidence < 0.3) score -= 0.5
+
+  // Clamp to [1, 10]
+  score = Math.max(1, Math.min(10, score))
+  score = Math.round(score * 10) / 10
+
+  // Verdict thresholds
+  let verdict: 'go' | 'maybe' | 'no'
+  if (dealbreakerTriggered || score < 4.5) {
+    verdict = 'no'
+  } else if (score >= 7.0) {
+    verdict = 'go'
+  } else {
+    verdict = 'maybe'
+  }
+
+  return { score_shared: score, dealbreaker_triggered: dealbreakerTriggered, verdict }
+}
+
+// ─── Main handler ─────────────────────────────────────────────────────────────
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -190,7 +255,23 @@ serve(async (req) => {
       processed_at: new Date().toISOString(),
     }, { onConflict: 'plot_id' })
 
-    // 7. Update plot with extracted fields (only if currently null/empty)
+    // 7. Compute and upsert plot_scores — this is what populates the verdict badge on cards
+    const extractionConf = (extractionResult as Record<string, number>)?.confidence_overall ?? 0.5
+    const scoreData = computeScore(risksResult as RiskFlagsResult, extractionConf)
+
+    await supabase.from('plot_scores').upsert({
+      plot_id,
+      workspace_id: plot.workspace_id,
+      score_owner: scoreData.score_shared,
+      score_editor: scoreData.score_shared,
+      score_shared: scoreData.score_shared,
+      disagreement: 0,
+      dealbreaker_triggered: scoreData.dealbreaker_triggered,
+      verdict: scoreData.verdict,
+      computed_at: new Date().toISOString(),
+    }, { onConflict: 'plot_id' })
+
+    // 8. Update plot with extracted fields (only if currently null/empty)
     const updates: Record<string, unknown> = {
       ai_processed_at: new Date().toISOString(),
     }
@@ -209,32 +290,45 @@ serve(async (req) => {
     }
     if (plot.has_road_access === null && ext.road_access != null) updates.has_road_access = ext.road_access
     if (!plot.zoning && ext.zoning) updates.zoning = ext.zoning
-    // Also update description if empty and AI extracted a good one
     if (!plot.description && ext.description) updates.description = ext.description
 
     await supabase.from('plots').update(updates).eq('id', plot_id)
 
-    // 8. Auto-advance status: inbox → draft after AI processing
+    // 9. Auto-advance status: inbox → draft after AI processing
     if (plot.status === 'inbox') {
       await supabase.from('plots').update({ status: 'draft' }).eq('id', plot_id)
     }
 
-    // 9. Log activity
-    await supabase.rpc('log_plot_activity', {
-      p_workspace_id: plot.workspace_id,
-      p_plot_id: plot_id,
-      p_user_id: null,
-      p_action: 'ai_processed',
-      p_metadata: {
-        model: 'claude-sonnet-4-5',
-        confidence: (extractionResult as Record<string, number>)?.confidence_overall,
-        fetched_from_url: fetchedFromUrl,
-        notes_used: notes.length,
-      },
-    })
+    // 10. Log activity (non-critical — don't crash if RPC missing)
+    try {
+      await supabase.rpc('log_plot_activity', {
+        p_workspace_id: plot.workspace_id,
+        p_plot_id: plot_id,
+        p_user_id: null,
+        p_action: 'ai_processed',
+        p_metadata: {
+          model: 'claude-sonnet-4-5',
+          confidence: extractionConf,
+          fetched_from_url: fetchedFromUrl,
+          notes_used: notes.length,
+          verdict: scoreData.verdict,
+          score: scoreData.score_shared,
+        },
+      })
+    } catch (logErr) {
+      // Activity log is non-critical — don't fail the whole function
+      console.warn('log_plot_activity failed (non-fatal):', logErr)
+    }
 
     return new Response(
-      JSON.stringify({ success: true, plot_id, ai_processed: true, fetched_from_url: fetchedFromUrl }),
+      JSON.stringify({
+        success: true,
+        plot_id,
+        ai_processed: true,
+        fetched_from_url: fetchedFromUrl,
+        verdict: scoreData.verdict,
+        score: scoreData.score_shared,
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   } catch (err) {

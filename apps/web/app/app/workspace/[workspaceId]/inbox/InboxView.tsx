@@ -194,6 +194,11 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
     setPlots(prev => prev.map(p => p.id === plotId ? { ...p, status: newStatus } : p))
   }
 
+  async function deletePlot(plotId: string) {
+    await supabase.from('plots').update({ is_deleted: true }).eq('id', plotId)
+    setPlots(prev => prev.filter(p => p.id !== plotId))
+  }
+
   return (
     <div className="min-h-screen p-6" style={{ background: '#F8F9FA' }}>
       {/* ── Add dialog ──────────────────────────────────────── */}
@@ -436,16 +441,27 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
                       }}>
                       {STATUS_LABELS[plot.status]}
                     </span>
-                    <span className="text-xs text-gray-300">{timeAgo(plot.created_at)}</span>
+                    <span className="text-xs text-gray-400">{timeAgo(plot.created_at)}</span>
                   </div>
-                  {plot.status === 'inbox' && (
+                  <div className="flex gap-2 mt-2">
+                    {plot.status === 'inbox' && (
+                      <button
+                        onClick={e => { e.stopPropagation(); moveStatus(plot.id, 'to_analyze') }}
+                        className="flex-1 text-xs font-medium py-1.5 rounded-lg transition-colors text-center"
+                        style={{ color: '#F97316', background: 'rgba(249,115,22,0.08)' }}>
+                        Do analizy →
+                      </button>
+                    )}
                     <button
-                      onClick={e => { e.stopPropagation(); moveStatus(plot.id, 'to_analyze') }}
-                      className="mt-2 w-full text-xs font-medium py-1.5 rounded-lg transition-colors text-center"
-                      style={{ color: '#F97316', background: 'rgba(249,115,22,0.08)' }}>
-                      Do analizy →
+                      onClick={e => {
+                        e.stopPropagation()
+                        if (window.confirm('Usunąć tę działkę z zestawienia?')) deletePlot(plot.id)
+                      }}
+                      className="text-xs font-medium py-1.5 px-3 rounded-lg transition-colors text-gray-400 hover:text-red-500 hover:bg-red-50"
+                      title="Usuń działkę">
+                      🗑
                     </button>
-                  )}
+                  </div>
                 </div>
               </div>
             )
