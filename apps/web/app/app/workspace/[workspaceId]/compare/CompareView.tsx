@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { VERDICT_COLORS, VERDICT_LABELS, STATUS_LABELS, STATUS_COLORS, SOURCE_LABELS, RISK_LABELS, RISK_COLORS } from '@de/ui'
+import { VERDICT_COLORS, VERDICT_LABELS, STATUS_LABELS, STATUS_COLORS, SOURCE_LABELS } from '@de/ui'
 import type { Plot, PlotScore, Verdict, SourceType } from '@de/db'
 
 interface PlotWithScore extends Plot {
@@ -108,20 +108,22 @@ export default function CompareView({ plots, workspaceId }: Props) {
     {
       label: 'Ryzyko',
       getValue: (_, s) => {
-        const r = s?.risk_level as keyof typeof RISK_LABELS | null
-        if (!r) return <span className="text-gray-400">—</span>
-        return (
-          <span className="text-xs font-medium" style={{ color: RISK_COLORS[r] }}>
-            {RISK_LABELS[r]}
-          </span>
-        )
+        if (!s) return <span className="text-gray-400">—</span>
+        return s.dealbreaker_triggered
+          ? <span className="text-xs font-medium text-red-600">⚠ Dealbreaker</span>
+          : <span className="text-xs font-medium text-green-600">OK</span>
       },
     },
     {
       label: 'Werdykt AI',
-      getValue: (_, s) => s?.ai_summary
-        ? <span className="text-xs text-gray-600 text-left block max-w-[180px] line-clamp-3">{s.ai_summary}</span>
-        : <span className="text-gray-400 text-xs">brak</span>,
+      getValue: (_, s) => {
+        if (!s?.verdict) return <span className="text-gray-400 text-xs">brak</span>
+        return (
+          <span className="text-xs font-medium" style={{ color: VERDICT_COLORS[s.verdict as Verdict] }}>
+            {VERDICT_LABELS[s.verdict as Verdict]}
+          </span>
+        )
+      },
     },
   ]
 

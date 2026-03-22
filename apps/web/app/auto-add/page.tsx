@@ -197,7 +197,7 @@ function detectSource(url: string): string {
 function buildTitle(url: string, text: string): string {
   // Try to extract a short title from the first line of pasted text
   if (text) {
-    const firstLine = text.split('\n')[0].trim()
+    const firstLine = (text.split('\n')[0] ?? '').trim()
     if (firstLine.length > 5 && firstLine.length < 100) return firstLine
   }
   // Fallback to domain name
