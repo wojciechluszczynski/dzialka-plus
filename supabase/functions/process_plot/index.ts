@@ -12,6 +12,75 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// Polish real-estate portals we can scrape
+const PORTAL_DOMAINS = [
+  'otodom.pl', 'olx.pl', 'gratka.pl', 'adresowo.pl',
+  'domiporta.pl', 'nieruchomosci-online.pl', 'morizon.pl',
+  'szybko.pl', 'gumtree.pl', 'trojmiasto.pl',
+]
+
+function isPortalUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.replace('www.', '')
+    return PORTAL_DOMAINS.some(d => hostname.endsWith(d))
+  } catch {
+    return false
+  }
+}
+
+function isFacebookUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.replace('www.', '')
+    return hostname === 'facebook.com' || hostname === 'fb.com' || hostname === 'm.facebook.com'
+  } catch {
+    return false
+  }
+}
+
+// Fetch a portal URL and extract plain text from HTML
+async function fetchPortalText(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8',
+      },
+      signal: AbortSignal.timeout(15000),
+    })
+
+    if (!res.ok) return null
+    const html = await res.text()
+
+    // Remove scripts, styles, nav, footer, header
+    let text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
+      .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
+      .replace(/<header[\s\S]*?<\/header>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      // Strip remaining tags
+      .replace(/<[^>]+>/g, ' ')
+      // Decode common HTML entities
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      // Collapse whitespace
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+
+    // Limit to 8000 chars (enough for Claude, avoids token overflow)
+    return text.slice(0, 8000)
+  } catch (err) {
+    console.error('fetchPortalText error:', err)
+    return null
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -36,13 +105,21 @@ serve(async (req) => {
       apiKey: Deno.env.get('ANTHROPIC_API_KEY')!,
     })
 
-    // 1. Fetch plot + source
-    const { data: plot, error: plotErr } = await supabase
-      .from('plots')
-      .select('*, plot_sources(*)')
-      .eq('id', plot_id)
-      .single()
+    // 1. Fetch plot + source + notes
+    const [plotResult, notesResult] = await Promise.all([
+      supabase
+        .from('plots')
+        .select('*, plot_sources(*)')
+        .eq('id', plot_id)
+        .single(),
+      supabase
+        .from('plot_notes')
+        .select('content, created_at')
+        .eq('plot_id', plot_id)
+        .order('created_at', { ascending: false }),
+    ])
 
+    const { data: plot, error: plotErr } = plotResult
     if (plotErr || !plot) {
       return new Response(JSON.stringify({ error: 'Plot not found' }), {
         status: 404,
@@ -51,26 +128,56 @@ serve(async (req) => {
     }
 
     const source = plot.plot_sources?.[0]
-    const rawText = [
-      plot.title,
-      plot.description,
-      source?.raw_text,
-      source?.fb_author ? `Sprzedający: ${source.fb_author}` : null,
-      source?.fb_group_name ? `Grupa: ${source.fb_group_name}` : null,
-    ].filter(Boolean).join('\n\n')
+    const notes = notesResult.data ?? []
 
-    // 2. EXTRACT_LISTING prompt
+    // 2. Assemble rawText from all available sources
+    const parts: string[] = []
+    if (plot.title) parts.push(`Tytuł: ${plot.title}`)
+    if (plot.description) parts.push(plot.description)
+    if (source?.raw_text) parts.push(source.raw_text)
+    if (source?.fb_author) parts.push(`Sprzedający: ${source.fb_author}`)
+    if (source?.fb_group_name) parts.push(`Grupa: ${source.fb_group_name}`)
+    // Include any user-pasted notes (e.g. copy-pasted FB post)
+    for (const note of notes) {
+      if (note.content && note.content.length > 20) {
+        parts.push(`--- Notatka użytkownika ---\n${note.content}`)
+      }
+    }
+
+    let rawText = parts.filter(Boolean).join('\n\n')
+
+    // 3. If we have very little text and a URL, try to fetch the listing page
+    const sourceUrl = plot.source_url ?? ''
+    let fetchedFromUrl = false
+
+    if (rawText.length < 200 && sourceUrl) {
+      if (isPortalUrl(sourceUrl)) {
+        console.log(`Fetching portal URL: ${sourceUrl}`)
+        const fetched = await fetchPortalText(sourceUrl)
+        if (fetched && fetched.length > 100) {
+          rawText = `--- Treść strony (${sourceUrl}) ---\n${fetched}\n\n${rawText}`
+          fetchedFromUrl = true
+          console.log(`Fetched ${fetched.length} chars from ${sourceUrl}`)
+        }
+      } else if (isFacebookUrl(sourceUrl)) {
+        // Facebook requires login — can't fetch. Tell Claude the URL is FB.
+        rawText += `\n\n[Ogłoszenie pochodzi z Facebooka. Treść ogłoszenia musi zostać wklejona ręcznie w sekcji Notatki.]`
+      }
+    }
+
+    // 4. EXTRACT_LISTING prompt
     const extractionResult = await runExtraction(anthropic, {
-      sourceUrl: plot.source_url ?? '',
+      sourceUrl,
       sourceType: plot.source_type ?? 'other',
       rawText,
       todayDate: new Date().toISOString().split('T')[0],
+      fetchedFromUrl,
     })
 
-    // 3. FLAG_RISKS prompt
+    // 5. FLAG_RISKS prompt
     const risksResult = await runFlagRisks(anthropic, extractionResult)
 
-    // 4. Upsert AI report
+    // 6. Upsert AI report
     await supabase.from('plot_ai_reports').upsert({
       plot_id,
       workspace_id: plot.workspace_id,
@@ -81,7 +188,7 @@ serve(async (req) => {
       processed_at: new Date().toISOString(),
     }, { onConflict: 'plot_id' })
 
-    // 5. Update plot with extracted fields (only if null)
+    // 7. Update plot with extracted fields (only if currently null/empty)
     const updates: Record<string, unknown> = {
       ai_processed_at: new Date().toISOString(),
     }
@@ -92,35 +199,40 @@ serve(async (req) => {
     if (!plot.location_text && ext.location_text) updates.location_text = ext.location_text
     if (!plot.parcel_id && ext.parcel_id) updates.parcel_id = ext.parcel_id
     if (ext.utilities) {
-      const u = ext.utilities as Record<string, boolean>
-      if (plot.has_electricity === null && u.electricity !== null) updates.has_electricity = u.electricity
-      if (plot.has_water === null && u.water !== null) updates.has_water = u.water
-      if (plot.has_sewage === null && u.sewage !== null) updates.has_sewage = u.sewage
-      if (plot.has_gas === null && u.gas !== null) updates.has_gas = u.gas
+      const u = ext.utilities as Record<string, boolean | null>
+      if (plot.has_electricity === null && u.electricity != null) updates.has_electricity = u.electricity
+      if (plot.has_water === null && u.water != null) updates.has_water = u.water
+      if (plot.has_sewage === null && u.sewage != null) updates.has_sewage = u.sewage
+      if (plot.has_gas === null && u.gas != null) updates.has_gas = u.gas
     }
-    if (plot.has_road_access === null && ext.road_access !== null) updates.has_road_access = ext.road_access
+    if (plot.has_road_access === null && ext.road_access != null) updates.has_road_access = ext.road_access
     if (!plot.zoning && ext.zoning) updates.zoning = ext.zoning
+    // Also update description if empty and AI extracted a good one
+    if (!plot.description && ext.description) updates.description = ext.description
 
-    if (Object.keys(updates).length > 1) {
-      await supabase.from('plots').update(updates).eq('id', plot_id)
-    }
+    await supabase.from('plots').update(updates).eq('id', plot_id)
 
-    // 6. Auto-advance status from inbox → draft
+    // 8. Auto-advance status: inbox → draft after AI processing
     if (plot.status === 'inbox') {
       await supabase.from('plots').update({ status: 'draft' }).eq('id', plot_id)
     }
 
-    // 7. Log activity
+    // 9. Log activity
     await supabase.rpc('log_plot_activity', {
       p_workspace_id: plot.workspace_id,
       p_plot_id: plot_id,
       p_user_id: null,
       p_action: 'ai_processed',
-      p_metadata: { model: 'claude-sonnet-4-5', confidence: (extractionResult as Record<string, number>)?.confidence_overall },
+      p_metadata: {
+        model: 'claude-sonnet-4-5',
+        confidence: (extractionResult as Record<string, number>)?.confidence_overall,
+        fetched_from_url: fetchedFromUrl,
+        notes_used: notes.length,
+      },
     })
 
     return new Response(
-      JSON.stringify({ success: true, plot_id, ai_processed: true }),
+      JSON.stringify({ success: true, plot_id, ai_processed: true, fetched_from_url: fetchedFromUrl }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
   } catch (err) {
@@ -136,18 +248,48 @@ serve(async (req) => {
 
 async function runExtraction(
   anthropic: Anthropic,
-  params: { sourceUrl: string; sourceType: string; rawText: string; todayDate: string }
+  params: { sourceUrl: string; sourceType: string; rawText: string; todayDate: string; fetchedFromUrl: boolean }
 ): Promise<unknown> {
   const system = `You are a strict information extraction engine for land plot listings in Poland.
 Return ONLY valid JSON. No prose, no markdown. Language: respond in Polish for human-readable fields.
-Today's date: ${params.todayDate}`
+Today's date: ${params.todayDate}
+${params.fetchedFromUrl ? 'Note: The raw_text was fetched directly from the listing URL — it may contain navigation/footer noise. Extract only the listing-relevant content.' : ''}`
 
   const user = `Extract structured listing data:
 - source_url: ${params.sourceUrl}
 - source_type: ${params.sourceType}
-- raw_text: ${params.rawText || '(empty)'}
+- raw_text: ${params.rawText || '(empty — no listing text available yet)'}
 
-Return JSON with: title, asking_price_pln, area_m2, price_per_m2_pln, location_text, parcel_id, address_freeform, description, contact_phone, contact_name, contact_type ("owner"|"agent"|"unknown"), utilities {electricity,water,sewage,gas,fiber}, road_access, zoning, facts[], inferences[], missing_fields[], confidence_overall (0-1), field_confidence {field: {value, confidence, evidence}}`
+Return JSON with these fields:
+{
+  "title": string | null,
+  "asking_price_pln": number | null,
+  "area_m2": number | null,
+  "price_per_m2_pln": number | null,
+  "location_text": string | null,
+  "parcel_id": string | null,
+  "address_freeform": string | null,
+  "description": string | null,
+  "contact_phone": string | null,
+  "contact_name": string | null,
+  "contact_type": "owner" | "agent" | "unknown",
+  "utilities": {
+    "electricity": boolean | null,
+    "water": boolean | null,
+    "sewage": boolean | null,
+    "gas": boolean | null,
+    "fiber": boolean | null
+  },
+  "road_access": boolean | null,
+  "zoning": string | null,
+  "facts": string[],
+  "inferences": string[],
+  "missing_fields": string[],
+  "confidence_overall": number,
+  "field_confidence": {
+    "[field_name]": { "value": any, "confidence": number, "evidence": string }
+  }
+}`
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-5',
@@ -162,7 +304,6 @@ Return JSON with: title, asking_price_pln, area_m2, price_per_m2_pln, location_t
     .map((b) => b.text)
     .join('')
 
-  // Strip markdown code blocks if any
   const clean = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim()
   return JSON.parse(clean)
 }
@@ -172,9 +313,44 @@ async function runFlagRisks(anthropic: Anthropic, extraction: unknown): Promise<
 Output JSON only. No prose. All labels and rationale in Polish.`
 
   const user = `Identify risks for this plot:
-${JSON.stringify(extraction)}
+${JSON.stringify(extraction, null, 2)}
 
-Return JSON: { risk_flags: [{type, severity ("low"|"med"|"high"), label, rationale, confidence, evidence, is_inference}], deal_breakers: [{key, label, triggered, rationale}], missing_due_diligence: [{item, priority ("must"|"should"|"nice")}], recommended_next_actions: [{action, reason}], confidence_overall, analysis_notes }`
+Return JSON:
+{
+  "risk_flags": [
+    {
+      "type": string,
+      "severity": "low" | "med" | "high",
+      "label": string,
+      "rationale": string,
+      "confidence": number,
+      "evidence": string,
+      "is_inference": boolean
+    }
+  ],
+  "deal_breakers": [
+    {
+      "key": string,
+      "label": string,
+      "triggered": boolean,
+      "rationale": string
+    }
+  ],
+  "missing_due_diligence": [
+    {
+      "item": string,
+      "priority": "must" | "should" | "nice"
+    }
+  ],
+  "recommended_next_actions": [
+    {
+      "action": string,
+      "reason": string
+    }
+  ],
+  "confidence_overall": number,
+  "analysis_notes": string
+}`
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-5',
