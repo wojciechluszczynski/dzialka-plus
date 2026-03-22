@@ -13,6 +13,9 @@ interface PlotWithScore extends Plot {
 interface Props {
   plots: PlotWithScore[]
   workspaceId: string
+  initialShowAdd?: boolean
+  initialUrl?: string
+  initialText?: string
 }
 
 function fmtPrice(n: number | null | undefined): string {
@@ -65,16 +68,16 @@ async function resizeImageToBase64(file: File, maxPx = 1400): Promise<string> {
 
 const ALL_FILTER = 'all'
 
-export default function InboxView({ plots: initialPlots, workspaceId }: Props) {
+export default function InboxView({ plots: initialPlots, workspaceId, initialShowAdd = false, initialUrl = '', initialText = '' }: Props) {
   const [plots, setPlots] = useState<PlotWithScore[]>(initialPlots)
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
   const [statusFilter, setStatusFilter] = useState<string>('inbox')
   const [search, setSearch] = useState('')
 
-  // Add dialog state
-  const [showAdd, setShowAdd] = useState(false)
-  const [addUrl, setAddUrl] = useState('')
-  const [addText, setAddText] = useState('')          // pasted listing text (FB post etc.)
+  // Add dialog state — pre-fill from URL params (bookmarklet / sidebar)
+  const [showAdd, setShowAdd] = useState(initialShowAdd)
+  const [addUrl, setAddUrl] = useState(initialUrl)
+  const [addText, setAddText] = useState(initialText)          // pasted listing text (FB post etc.)
   const [addImageB64, setAddImageB64] = useState<string | null>(null)
   const [addImageName, setAddImageName] = useState<string | null>(null)
   const [addLoading, setAddLoading] = useState(false)
