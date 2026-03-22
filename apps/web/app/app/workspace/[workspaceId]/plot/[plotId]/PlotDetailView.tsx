@@ -191,8 +191,8 @@ export default function PlotDetailView({ plot: initialPlot, workspaceId }: { plo
               )}
             </div>
             <div className="flex flex-col gap-1 text-xs text-gray-400 flex-shrink-0">
-              {score.score_wojtek != null && <span>Wojtek: <strong className="text-gray-700">{score.score_wojtek.toFixed(1)}</strong></span>}
-              {score.score_sabina != null && <span>Sabina: <strong className="text-gray-700">{score.score_sabina.toFixed(1)}</strong></span>}
+              {score.score_owner != null && <span>Wojtek: <strong className="text-gray-700">{score.score_owner.toFixed(1)}</strong></span>}
+              {score.score_editor != null && <span>Sabina: <strong className="text-gray-700">{score.score_editor.toFixed(1)}</strong></span>}
             </div>
           </div>
         )}

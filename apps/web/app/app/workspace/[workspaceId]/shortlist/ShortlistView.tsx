@@ -136,11 +136,11 @@ function Section({ title, plots, workspaceId, compareIds, onToggleCompare }: {
                       }} />
                     </div>
                     <div className="flex gap-3 mt-1.5">
-                      {score.score_wojtek != null && (
-                        <span className="text-xs text-gray-400">W: <strong className="text-gray-700">{score.score_wojtek.toFixed(1)}</strong></span>
+                      {score.score_owner != null && (
+                        <span className="text-xs text-gray-400">W: <strong className="text-gray-700">{score.score_owner.toFixed(1)}</strong></span>
                       )}
-                      {score.score_sabina != null && (
-                        <span className="text-xs text-gray-400">S: <strong className="text-gray-700">{score.score_sabina.toFixed(1)}</strong></span>
+                      {score.score_editor != null && (
+                        <span className="text-xs text-gray-400">S: <strong className="text-gray-700">{score.score_editor.toFixed(1)}</strong></span>
                       )}
                     </div>
                   </div>

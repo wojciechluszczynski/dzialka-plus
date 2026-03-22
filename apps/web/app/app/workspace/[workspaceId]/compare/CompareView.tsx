@@ -99,11 +99,11 @@ export default function CompareView({ plots, workspaceId }: Props) {
     },
     {
       label: 'Wojtek',
-      getValue: (_, s) => s?.score_wojtek != null ? s.score_wojtek.toFixed(1) + '/10' : '—',
+      getValue: (_, s) => s?.score_owner != null ? s.score_owner.toFixed(1) + '/10' : '—',
     },
     {
       label: 'Sabina',
-      getValue: (_, s) => s?.score_sabina != null ? s.score_sabina.toFixed(1) + '/10' : '—',
+      getValue: (_, s) => s?.score_editor != null ? s.score_editor.toFixed(1) + '/10' : '—',
     },
     {
       label: 'Ryzyko',
