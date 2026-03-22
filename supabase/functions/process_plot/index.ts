@@ -37,46 +37,264 @@ function isFacebookUrl(url: string): boolean {
   }
 }
 
-// Fetch a portal URL and extract plain text from HTML
-async function fetchPortalText(url: string): Promise<string | null> {
+// ─── Enhanced portal scraping ─────────────────────────────────────────────────
+
+interface FetchResult {
+  text: string
+  images: string[]
+  structured: boolean // true if we got __NEXT_DATA__ or JSON-LD
+}
+
+/** Extract __NEXT_DATA__ JSON from Otodom/Next.js pages */
+function extractNextData(html: string): Record<string, unknown> | null {
+  const match = html.match(/<script\s+id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i)
+  if (!match) return null
+  try {
+    return JSON.parse(match[1])
+  } catch {
+    return null
+  }
+}
+
+/** Traverse nested object with dot-path like 'props.pageProps.ad.title' */
+// deno-lint-ignore no-explicit-any
+function getPath(obj: any, ...paths: string[]): unknown {
+  for (const path of paths) {
+    let cur = obj
+    for (const key of path.split('.')) {
+      if (cur == null || typeof cur !== 'object') { cur = undefined; break }
+      cur = cur[key]
+    }
+    if (cur != null) return cur
+  }
+  return undefined
+}
+
+/** Format Otodom __NEXT_DATA__ into structured text for Claude */
+// deno-lint-ignore no-explicit-any
+function formatOtodomNextData(data: Record<string, unknown>): { text: string; images: string[] } {
+  const lines: string[] = []
+  const images: string[] = []
+
+  // Otodom stores advert in multiple possible paths depending on version
+  // deno-lint-ignore no-explicit-any
+  const ad = (
+    getPath(data, 'props.pageProps.ad') ??
+    getPath(data, 'props.pageProps.advert') ??
+    getPath(data, 'props.pageProps.listing')
+  ) as Record<string, unknown> | undefined
+
+  if (!ad) {
+    // Try to find any ad-like object
+    const pageProps = getPath(data, 'props.pageProps') as Record<string, unknown> | undefined
+    if (pageProps) {
+      lines.push('pageProps keys: ' + Object.keys(pageProps).join(', '))
+    }
+    return { text: lines.join('\n'), images }
+  }
+
+  if (ad.title) lines.push(`Tytuł: ${ad.title}`)
+
+  // Price
+  const totalPrice = ad.totalPrice as Record<string, unknown> | undefined
+  if (totalPrice?.value) lines.push(`Cena: ${totalPrice.value} ${totalPrice.currency ?? 'PLN'}`)
+
+  const price = ad.price as Record<string, unknown> | undefined
+  if (price?.value) lines.push(`Cena: ${price.value} ${price.currency ?? 'PLN'}`)
+
+  // Area
+  const area = ad.area as Record<string, unknown> | undefined
+  if (area?.value) lines.push(`Powierzchnia: ${area.value} ${area.unit ?? 'm²'}`)
+
+  // Price per m2
+  const pricePerUnit = ad.pricePerUnit as Record<string, unknown> | undefined
+  if (pricePerUnit?.value) lines.push(`Cena za m²: ${pricePerUnit.value} ${pricePerUnit.unit ?? 'PLN/m²'}`)
+
+  // Location
+  const loc = ad.location as Record<string, unknown> | undefined
+  if (loc) {
+    const addr = (loc.address ?? loc.mapDetails) as Record<string, unknown> | undefined
+    if (addr) {
+      const city = (addr.city as Record<string, unknown> | undefined)?.name ?? addr.city
+      const district = (addr.district as Record<string, unknown> | undefined)?.name ?? addr.district
+      const street = (addr.street as Record<string, unknown> | undefined)?.name ?? addr.street
+      const parts = [street, district, city].filter(Boolean)
+      if (parts.length) lines.push(`Lokalizacja: ${parts.join(', ')}`)
+    }
+    if (loc.geoPoint) {
+      const gp = loc.geoPoint as Record<string, unknown>
+      if (gp.lat && gp.lon) lines.push(`Współrzędne: ${gp.lat}, ${gp.lon}`)
+    }
+  }
+
+  // Characteristics
+  const chars = ad.characteristics as Array<Record<string, unknown>> | undefined
+  if (Array.isArray(chars)) {
+    for (const c of chars) {
+      if (c.label && c.value != null) {
+        lines.push(`${c.label}: ${c.value}${c.suffix ? ' ' + c.suffix : ''}`)
+      }
+    }
+  }
+
+  // Features / extras
+  const features = (ad.features ?? ad.extras) as Array<Record<string, unknown> | string> | undefined
+  if (Array.isArray(features)) {
+    const featureLabels = features.map((f) => (typeof f === 'string' ? f : (f.label ?? f.name ?? JSON.stringify(f)))).filter(Boolean)
+    if (featureLabels.length) lines.push(`Udogodnienia: ${featureLabels.join(', ')}`)
+  }
+
+  // Description
+  if (ad.description) {
+    const desc = String(ad.description).replace(/<[^>]+>/g, ' ').replace(/\s{2,}/g, ' ').trim()
+    lines.push(`\nOpis:\n${desc.slice(0, 3000)}`)
+  }
+
+  // Contact / seller
+  const seller = (ad.seller ?? ad.contact) as Record<string, unknown> | undefined
+  if (seller) {
+    if (seller.name) lines.push(`Sprzedający: ${seller.name}`)
+    if (seller.type) lines.push(`Typ sprzedającego: ${seller.type}`)
+    const phones = seller.phones as string[] | undefined
+    if (Array.isArray(phones) && phones.length) lines.push(`Telefon: ${phones[0]}`)
+  }
+
+  // Parcel number
+  if (ad.parcels) {
+    const parcels = ad.parcels as Array<Record<string, unknown>> | string
+    if (Array.isArray(parcels) && parcels.length) {
+      lines.push(`Numer działki: ${parcels.map((p: Record<string, unknown>) => p.parcelnumber ?? p.id ?? p).join(', ')}`)
+    }
+  }
+
+  // Images — Otodom stores them in ad.media or ad.images
+  const mediaArr = (ad.media ?? ad.images ?? ad.photos) as Array<Record<string, unknown> | string> | undefined
+  if (Array.isArray(mediaArr)) {
+    for (const m of mediaArr) {
+      const url = typeof m === 'string' ? m
+        : (m.large ?? m.url ?? m.src ?? m.medium ?? m.small) as string | undefined
+      if (url && typeof url === 'string' && url.startsWith('http') && images.length < 20) {
+        images.push(url)
+      }
+    }
+  }
+
+  return { text: lines.join('\n'), images }
+}
+
+/** Extract og:image, JSON-LD images, and maybe a few listing images */
+function extractImagesFromHtml(html: string): string[] {
+  const images: string[] = []
+
+  // og:image
+  const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+    ?? html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)
+  if (ogMatch) images.push(ogMatch[1])
+
+  // JSON-LD images
+  const jsonldMatches = html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)
+  for (const m of jsonldMatches) {
+    try {
+      const obj = JSON.parse(m[1])
+      const extractLdImages = (o: unknown) => {
+        if (!o || typeof o !== 'object') return
+        const arr = Array.isArray(o) ? o : [o]
+        for (const item of arr) {
+          if (typeof item !== 'object' || item === null) continue
+          const rec = item as Record<string, unknown>
+          if (rec.image) {
+            const img = rec.image
+            if (typeof img === 'string' && img.startsWith('http')) images.push(img)
+            else if (Array.isArray(img)) img.forEach(i => { if (typeof i === 'string' && i.startsWith('http') && images.length < 20) images.push(i) })
+          }
+          for (const val of Object.values(rec)) extractLdImages(val)
+        }
+      }
+      extractLdImages(obj)
+    } catch { /* ignore */ }
+  }
+
+  // Dedupe
+  return [...new Set(images)].slice(0, 20)
+}
+
+/** Fetch a portal page, returning cleaned text + image URLs */
+async function fetchPortalContent(url: string): Promise<FetchResult | null> {
+  const FETCH_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Upgrade-Insecure-Requests': '1',
+  }
+
   try {
     const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8',
-      },
-      signal: AbortSignal.timeout(15000),
+      headers: FETCH_HEADERS,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(20000),
     })
 
-    if (!res.ok) return null
-    const html = await res.text()
+    console.log(`fetchPortalContent: ${url} → status ${res.status}`)
+    if (!res.ok) {
+      console.warn(`fetchPortalContent: HTTP ${res.status} for ${url}`)
+      // Try alternate approach for Otodom: fetch without some headers
+      if (res.status === 403 || res.status === 429) {
+        return null
+      }
+    }
 
-    // Remove scripts, styles, nav, footer, header
-    let text = html
+    const html = await res.text()
+    console.log(`fetchPortalContent: got ${html.length} chars HTML`)
+
+    // Detect Cloudflare challenge page
+    if (html.includes('cf-browser-verification') || html.includes('cloudflare') && html.length < 10000) {
+      console.warn('fetchPortalContent: Cloudflare challenge detected')
+      return null
+    }
+
+    // ── 1. Try __NEXT_DATA__ (Otodom, some portals) ──────────────────────────
+    const nextData = extractNextData(html)
+    if (nextData) {
+      console.log('fetchPortalContent: found __NEXT_DATA__')
+      const { text, images: nextImages } = formatOtodomNextData(nextData)
+      const htmlImages = extractImagesFromHtml(html)
+      const allImages = [...new Set([...nextImages, ...htmlImages])].slice(0, 20)
+      if (text.length > 50) {
+        return { text: `[Dane ze struktury strony (Next.js)]\n${text}`, images: allImages, structured: true }
+      }
+    }
+
+    // ── 2. Try JSON-LD structured data ───────────────────────────────────────
+    const ldImages = extractImagesFromHtml(html)
+
+    // ── 3. Fallback: strip HTML to plain text ────────────────────────────────
+    const stripped = html
       .replace(/<script[\s\S]*?<\/script>/gi, ' ')
       .replace(/<style[\s\S]*?<\/style>/gi, ' ')
       .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
       .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
       .replace(/<header[\s\S]*?<\/header>/gi, ' ')
       .replace(/<!--[\s\S]*?-->/g, ' ')
-      // Strip remaining tags
       .replace(/<[^>]+>/g, ' ')
-      // Decode common HTML entities
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
-      // Collapse whitespace
       .replace(/\s{2,}/g, ' ')
       .trim()
+      .slice(0, 8000)
 
-    // Limit to 8000 chars (enough for Claude, avoids token overflow)
-    return text.slice(0, 8000)
+    return { text: stripped, images: ldImages, structured: false }
   } catch (err) {
-    console.error('fetchPortalText error:', err)
+    console.error('fetchPortalContent error:', err)
     return null
   }
 }
@@ -203,7 +421,6 @@ serve(async (req) => {
     if (source?.raw_text) parts.push(source.raw_text)
     if (source?.fb_author) parts.push(`Sprzedający: ${source.fb_author}`)
     if (source?.fb_group_name) parts.push(`Grupa: ${source.fb_group_name}`)
-    // Include any user-pasted notes (e.g. copy-pasted FB post)
     for (const note of notes) {
       if (note.content && note.content.length > 20) {
         parts.push(`--- Notatka użytkownika ---\n${note.content}`)
@@ -215,18 +432,27 @@ serve(async (req) => {
     // 3. If we have very little text and a URL, try to fetch the listing page
     const sourceUrl = plot.source_url ?? ''
     let fetchedFromUrl = false
+    let fetchedImages: string[] = []
 
-    if (rawText.length < 200 && sourceUrl) {
+    if (sourceUrl && (rawText.length < 200 || isPortalUrl(sourceUrl))) {
       if (isPortalUrl(sourceUrl)) {
         console.log(`Fetching portal URL: ${sourceUrl}`)
-        const fetched = await fetchPortalText(sourceUrl)
-        if (fetched && fetched.length > 100) {
-          rawText = `--- Treść strony (${sourceUrl}) ---\n${fetched}\n\n${rawText}`
-          fetchedFromUrl = true
-          console.log(`Fetched ${fetched.length} chars from ${sourceUrl}`)
+        const fetched = await fetchPortalContent(sourceUrl)
+        if (fetched) {
+          if (fetched.text.length > 100) {
+            rawText = `--- Treść strony (${sourceUrl}) ---\n${fetched.text}\n\n${rawText}`
+            fetchedFromUrl = true
+            console.log(`Fetched ${fetched.text.length} chars from ${sourceUrl}`)
+          }
+          if (fetched.images.length > 0) {
+            fetchedImages = fetched.images
+            console.log(`Extracted ${fetchedImages.length} images from ${sourceUrl}`)
+          }
+        } else {
+          console.warn(`Failed to fetch ${sourceUrl} — proceeding with available text`)
+          rawText += `\n\n[URL ogłoszenia: ${sourceUrl}. Strona niedostępna — wklej treść ogłoszenia ręcznie w notatce.]`
         }
       } else if (isFacebookUrl(sourceUrl)) {
-        // Facebook requires login — can't fetch. Tell Claude the URL is FB.
         rawText += `\n\n[Ogłoszenie pochodzi z Facebooka. Treść ogłoszenia musi zostać wklejona ręcznie w sekcji Notatki.]`
       }
     }
@@ -244,11 +470,14 @@ serve(async (req) => {
     // 5. FLAG_RISKS prompt
     const risksResult = await runFlagRisks(anthropic, extractionResult)
 
-    // 6. Upsert AI report
+    // 6. Upsert AI report — include extracted listing images
     await supabase.from('plot_ai_reports').upsert({
       plot_id,
       workspace_id: plot.workspace_id,
-      extraction_json: extractionResult,
+      extraction_json: {
+        ...(extractionResult as Record<string, unknown>),
+        listing_images: fetchedImages,
+      },
       risk_flags_json: risksResult,
       extraction_confidence: (extractionResult as Record<string, number>)?.confidence_overall ?? null,
       model_used: 'claude-sonnet-4-5',
@@ -313,10 +542,10 @@ serve(async (req) => {
           notes_used: notes.length,
           verdict: scoreData.verdict,
           score: scoreData.score_shared,
+          images_found: fetchedImages.length,
         },
       })
     } catch (logErr) {
-      // Activity log is non-critical — don't fail the whole function
       console.warn('log_plot_activity failed (non-fatal):', logErr)
     }
 
@@ -328,6 +557,7 @@ serve(async (req) => {
         fetched_from_url: fetchedFromUrl,
         verdict: scoreData.verdict,
         score: scoreData.score_shared,
+        images_found: fetchedImages.length,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     )
@@ -349,7 +579,7 @@ async function runExtraction(
   const system = `You are a strict information extraction engine for land plot listings in Poland.
 Return ONLY valid JSON. No prose, no markdown. Language: respond in Polish for human-readable fields.
 Today's date: ${params.todayDate}
-${params.fetchedFromUrl ? 'Note: The raw_text was fetched directly from the listing URL — it may contain navigation/footer noise. Extract only the listing-relevant content.' : ''}
+${params.fetchedFromUrl ? 'Note: The raw_text was fetched directly from the listing URL — it may contain structured data or stripped HTML. Extract only the listing-relevant content.' : ''}
 ${params.imageBase64 ? 'Note: A screenshot image of the listing is also provided. Extract all visible data including price, area, location, and any text in the image.' : ''}`
 
   const user = `Extract structured listing data:

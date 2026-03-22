@@ -5,7 +5,7 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import {
   MapPin, Map, ExternalLink, ChevronLeft, Zap, Droplets, Flame, Wifi,
   GitFork, Check, X, AlertTriangle, Lightbulb, ClipboardList, Info,
-  Loader2, RefreshCw, CheckCircle, Circle, MinusCircle
+  Loader2, RefreshCw, CheckCircle, Circle, MinusCircle, Images, ChevronRight
 } from 'lucide-react'
 import { STATUS_LABELS, STATUS_COLORS, VERDICT_COLORS, VERDICT_LABELS, SOURCE_LABELS, RISK_COLORS, RISK_LABELS } from '@de/ui'
 import type { PlotStatus, SourceType, Verdict } from '@de/db'
@@ -100,6 +100,8 @@ export default function PlotDetailView({ plotId, workspaceId }: Props) {
   const [processing, setProcessing] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+  const [galleryIdx, setGalleryIdx] = useState(0)
+  const [galleryOpen, setGalleryOpen] = useState(false)
   const supabase = createClientComponentClient()
   const noteRef = useRef<HTMLTextAreaElement>(null)
 
@@ -142,6 +144,13 @@ export default function PlotDetailView({ plotId, workspaceId }: Props) {
   const riskFlags: Array<{ label: string; severity: string; rationale: string }> = riskData?.risk_flags ?? []
   const nextActions: Array<{ action: string; reason: string }> = riskData?.recommended_next_actions ?? []
   const dueDiligence: Array<{ item: string; priority: string }> = riskData?.missing_due_diligence ?? []
+
+  // Images extracted from listing by edge function
+  const listingImages: string[] = (() => {
+    const imgs = extraction?.listing_images
+    if (!Array.isArray(imgs)) return []
+    return (imgs as unknown[]).filter((i): i is string => typeof i === 'string' && i.startsWith('http')).slice(0, 20)
+  })()
 
   const mapsHref = plot.lat && plot.lng
     ? `https://maps.google.com/?q=${plot.lat},${plot.lng}`
@@ -330,6 +339,60 @@ export default function PlotDetailView({ plotId, workspaceId }: Props) {
             </button>
           </div>
         ) : null}
+
+        {/* ── Photo gallery ──────────────────────────────────────────────────── */}
+        {listingImages.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            {/* Fullscreen lightbox */}
+            {galleryOpen && (
+              <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center"
+                onClick={() => setGalleryOpen(false)}>
+                <button className="absolute top-4 right-4 text-white/70 hover:text-white text-2xl font-light"
+                  onClick={() => setGalleryOpen(false)}>✕</button>
+                <button className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2"
+                  onClick={e => { e.stopPropagation(); setGalleryIdx(i => Math.max(0, i - 1)) }}>
+                  <ChevronLeft size={28} />
+                </button>
+                <button className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2"
+                  onClick={e => { e.stopPropagation(); setGalleryIdx(i => Math.min(listingImages.length - 1, i + 1)) }}>
+                  <ChevronRight size={28} />
+                </button>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={listingImages[galleryIdx]}
+                  alt={`Zdjęcie ${galleryIdx + 1}`}
+                  className="max-w-[90vw] max-h-[85vh] object-contain rounded-xl"
+                  onClick={e => e.stopPropagation()}
+                />
+                <div className="text-white/50 text-sm mt-3">{galleryIdx + 1} / {listingImages.length}</div>
+              </div>
+            )}
+            {/* Main gallery row */}
+            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-gray-100">
+              <Images size={14} style={{ color: '#9CA3AF' }} strokeWidth={2} />
+              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Zdjęcia z ogłoszenia ({listingImages.length})
+              </h3>
+            </div>
+            <div className="p-3">
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {listingImages.map((src, i) => (
+                  <button key={i}
+                    onClick={() => { setGalleryIdx(i); setGalleryOpen(true) }}
+                    className="flex-shrink-0 rounded-xl overflow-hidden border border-gray-100 hover:border-orange-300 transition-all hover:shadow-md">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={src}
+                      alt={`Zdjęcie ${i + 1}`}
+                      className="w-36 h-28 object-cover"
+                      loading="lazy"
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Description ────────────────────────────────────────────────────── */}
         {plot.description && (
