@@ -48,3 +48,7 @@ ios/
 # Supabase
 supabase/.branches/
 supabase/.temp/
+
+package-lock.json
+apps/web/next-env.d.ts
+*.tsbuildinfo
