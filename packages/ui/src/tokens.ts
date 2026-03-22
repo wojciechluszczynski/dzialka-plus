@@ -142,7 +142,7 @@ export const COLORS = {
 } as const
 
 export const TYPOGRAPHY = {
-  fontHeading: 'Rajdhani',
+  fontHeading: 'Inter',
   fontBody:    'Inter',
 
   sizes: {
