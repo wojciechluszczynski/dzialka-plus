@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { STATUS_LABELS, STATUS_COLORS, SOURCE_LABELS, VERDICT_COLORS, VERDICT_LABELS } from '@de/ui'
 import type { Plot, PlotScore, Verdict, PlotStatus } from '@de/db'
@@ -10,7 +10,7 @@ interface PlotWithScore extends Plot {
 }
 
 interface Props {
-  plots: PlotWithScore[]
+  plots?: PlotWithScore[]
   workspaceId: string
 }
 
@@ -67,7 +67,20 @@ function exportCsv(rows: PlotWithScore[]) {
 }
 
 export default function PlotsTableView({ plots: initialPlots, workspaceId }: Props) {
-  const [plots, setPlots] = useState<PlotWithScore[]>(initialPlots)
+  const [plots, setPlots] = useState<PlotWithScore[]>(initialPlots ?? [])
+  const supabaseInit = createClientComponentClient()
+
+  useEffect(() => {
+    if (initialPlots !== undefined) return // already have data
+    supabaseInit
+      .from('plots')
+      .select('*, plot_scores(*)')
+      .eq('workspace_id', workspaceId)
+      .eq('is_deleted', false)
+      .order('updated_at', { ascending: false })
+      .limit(200)
+      .then(({ data }) => setPlots((data as PlotWithScore[]) ?? []))
+  }, [workspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [verdictFilter, setVerdictFilter] = useState<string>('all')

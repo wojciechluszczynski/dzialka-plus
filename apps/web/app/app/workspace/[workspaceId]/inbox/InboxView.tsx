@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { MapPin, Map, Trash2, Plus, ExternalLink, Search, Loader2, Package } from 'lucide-react'
 import { STATUS_LABELS, STATUS_COLORS, SOURCE_LABELS, VERDICT_COLORS, VERDICT_LABELS } from '@de/ui'
 import type { Plot, PlotScore, Verdict, PlotStatus, SourceType } from '@de/db'
 
@@ -11,7 +12,6 @@ interface PlotWithScore extends Plot {
 }
 
 interface Props {
-  plots: PlotWithScore[]
   workspaceId: string
   initialShowAdd?: boolean
   initialUrl?: string
@@ -68,16 +68,35 @@ async function resizeImageToBase64(file: File, maxPx = 1400): Promise<string> {
 
 const ALL_FILTER = 'all'
 
-export default function InboxView({ plots: initialPlots, workspaceId, initialShowAdd = false, initialUrl = '', initialText = '' }: Props) {
-  const [plots, setPlots] = useState<PlotWithScore[]>(initialPlots)
+// ─── Skeleton card ────────────────────────────────────────────────────────────
+function SkeletonCard() {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden animate-pulse">
+      <div className="h-36" style={{ background: '#E5E7EB' }} />
+      <div className="p-3 space-y-2">
+        <div className="h-4 bg-gray-200 rounded w-4/5" />
+        <div className="h-3 bg-gray-100 rounded w-1/2" />
+        <div className="h-3 bg-gray-100 rounded w-1/3" />
+        <div className="h-1.5 bg-gray-100 rounded-full w-full mt-3" />
+        <div className="flex justify-between items-center pt-1">
+          <div className="h-5 bg-gray-100 rounded-full w-16" />
+          <div className="h-3 bg-gray-100 rounded w-12" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function InboxView({ workspaceId, initialShowAdd = false, initialUrl = '', initialText = '' }: Props) {
+  const [plots, setPlots] = useState<PlotWithScore[] | null>(null) // null = still loading
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set())
   const [statusFilter, setStatusFilter] = useState<string>('inbox')
   const [search, setSearch] = useState('')
 
-  // Add dialog state — pre-fill from URL params (bookmarklet / sidebar)
+  // Add dialog state
   const [showAdd, setShowAdd] = useState(initialShowAdd)
   const [addUrl, setAddUrl] = useState(initialUrl)
-  const [addText, setAddText] = useState(initialText)          // pasted listing text (FB post etc.)
+  const [addText, setAddText] = useState(initialText)
   const [addImageB64, setAddImageB64] = useState<string | null>(null)
   const [addImageName, setAddImageName] = useState<string | null>(null)
   const [addLoading, setAddLoading] = useState(false)
@@ -86,7 +105,20 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
 
   const supabase = createClientComponentClient()
 
+  // ── Fetch plots client-side (instant skeleton, no SSR wait) ──────────────
+  useEffect(() => {
+    supabase
+      .from('plots')
+      .select('*, plot_scores(*)')
+      .eq('workspace_id', workspaceId)
+      .eq('is_deleted', false)
+      .order('created_at', { ascending: false })
+      .limit(200)
+      .then(({ data }) => setPlots(data as PlotWithScore[] ?? []))
+  }, [workspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const filtered = useMemo(() => {
+    if (!plots) return []
     return plots.filter(p => {
       const q = search.toLowerCase()
       const matchSearch = !search
@@ -122,11 +154,9 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
     try {
       const { data: { user } } = await supabase.auth.getUser()
 
-      // Build a title hint from first line of pasted text
       const firstLine = (addText.trim().split('\n')[0] ?? '').trim()
       const titleHint = firstLine.length > 5 && firstLine.length < 100 ? firstLine : null
 
-      // 1. Create plot (title deliberately left null if no text hint — let AI fill it)
       const { data: plot, error: plotErr } = await supabase.from('plots').insert({
         workspace_id: workspaceId,
         created_by: user!.id,
@@ -144,7 +174,6 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
         return
       }
 
-      // 2. Save pasted text as plot_note so AI can see it
       if (hasText) {
         await supabase.from('plot_notes').insert({
           plot_id: plot.id,
@@ -155,7 +184,6 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
         })
       }
 
-      // 3. Trigger AI analysis (fire-and-forget, pass image if present)
       const { data: { session } } = await supabase.auth.getSession()
       const body: Record<string, unknown> = { plot_id: plot.id }
       if (hasImage) body.image_base64 = addImageB64
@@ -165,18 +193,16 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
         body,
         headers: { Authorization: 'Bearer ' + (session?.access_token ?? '') },
       }).then(() => {
-        // After AI done, reload this plot's data
         supabase.from('plots').select('*, plot_scores(*)').eq('id', plot.id).single()
           .then(({ data }) => {
-            if (data) setPlots(prev => prev.map(p => p.id === data.id ? (data as PlotWithScore) : p))
+            if (data) setPlots(prev => prev ? prev.map(p => p.id === data.id ? (data as PlotWithScore) : p) : prev)
           })
         setProcessingIds(prev => { const s = new Set(prev); s.delete(plot.id); return s })
       }).catch(() => {
         setProcessingIds(prev => { const s = new Set(prev); s.delete(plot.id); return s })
       })
 
-      // 4. Add to local state immediately
-      setPlots(prev => [{ ...(plot as PlotWithScore), plot_scores: [] }, ...prev])
+      setPlots(prev => prev ? [{ ...(plot as PlotWithScore), plot_scores: [] }, ...prev] : [{ ...(plot as PlotWithScore), plot_scores: [] }])
       setAddUrl(''); setAddText(''); setAddImageB64(null); setAddImageName(null)
       setShowAdd(false)
     } finally {
@@ -191,20 +217,20 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
 
   async function moveStatus(plotId: string, newStatus: PlotStatus) {
     await supabase.from('plots').update({ status: newStatus }).eq('id', plotId)
-    setPlots(prev => prev.map(p => p.id === plotId ? { ...p, status: newStatus } : p))
+    setPlots(prev => prev ? prev.map(p => p.id === plotId ? { ...p, status: newStatus } : p) : prev)
   }
 
   async function deletePlot(plotId: string) {
     await supabase.from('plots').update({ is_deleted: true }).eq('id', plotId)
-    setPlots(prev => prev.filter(p => p.id !== plotId))
+    setPlots(prev => prev ? prev.filter(p => p.id !== plotId) : prev)
   }
 
   return (
     <div className="min-h-screen p-6" style={{ background: '#F8F9FA' }}>
-      {/* ── Add dialog ──────────────────────────────────────── */}
+      {/* ── Add dialog ──────────────────────────────────────────────────────── */}
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40" onClick={closeAdd} />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeAdd} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg border border-gray-200">
             <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100">
               <h2 className="text-lg font-semibold text-gray-900">Dodaj działkę</h2>
@@ -215,7 +241,7 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
               {/* URL */}
               <div>
                 <label className="block text-gray-500 text-xs font-semibold uppercase tracking-wide mb-1.5">
-                  🔗 Link do ogłoszenia <span className="font-normal normal-case text-gray-400">(opcjonalnie)</span>
+                  Link do ogłoszenia <span className="font-normal normal-case text-gray-400">(opcjonalnie)</span>
                 </label>
                 <input
                   type="text"
@@ -229,7 +255,7 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
               {/* Paste text */}
               <div>
                 <label className="block text-gray-500 text-xs font-semibold uppercase tracking-wide mb-1.5">
-                  📋 Wklej treść ogłoszenia <span className="font-normal normal-case text-gray-400">(z FB, portalu, SMS itp.)</span>
+                  Wklej treść ogłoszenia <span className="font-normal normal-case text-gray-400">(z FB, portalu, SMS)</span>
                 </label>
                 <textarea
                   value={addText}
@@ -243,7 +269,7 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
               {/* Image upload */}
               <div>
                 <label className="block text-gray-500 text-xs font-semibold uppercase tracking-wide mb-1.5">
-                  📷 Zdjęcie / screenshot <span className="font-normal normal-case text-gray-400">(opcjonalnie)</span>
+                  Zdjęcie / screenshot <span className="font-normal normal-case text-gray-400">(opcjonalnie)</span>
                 </label>
                 {addImageB64 ? (
                   <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg px-4 py-2.5">
@@ -272,9 +298,13 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
                   Anuluj
                 </button>
                 <button type="submit" disabled={addLoading || (!addUrl.trim() && !addText.trim() && !addImageB64)}
-                  className="flex-1 text-white font-semibold rounded-lg py-2.5 text-sm disabled:opacity-50 transition-opacity"
+                  className="flex-1 text-white font-semibold rounded-lg py-2.5 text-sm disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
                   style={{ background: '#F97316' }}>
-                  {addLoading ? '🤖 Dodaję i analizuję...' : '+ Dodaj i analizuj AI'}
+                  {addLoading ? (
+                    <><Loader2 size={15} className="animate-spin" /> Dodaję i analizuję...</>
+                  ) : (
+                    <><Plus size={15} /> Dodaj i analizuj AI</>
+                  )}
                 </button>
               </div>
             </form>
@@ -282,59 +312,82 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
         </div>
       )}
 
-      {/* ── Header ──────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <div className="mr-auto">
           <h1 className="text-2xl font-semibold text-gray-900">Skrzynka</h1>
-          <p className="text-gray-400 text-sm mt-0.5">{filtered.length} działek</p>
+          <p className="text-gray-400 text-sm mt-0.5">
+            {plots === null ? 'Ładowanie...' : `${filtered.length} działek`}
+          </p>
         </div>
-        <input type="search" placeholder="Szukaj..." value={search} onChange={e => setSearch(e.target.value)}
-          className="bg-white border border-gray-200 rounded-lg px-4 py-2 text-gray-800 placeholder:text-gray-400 text-sm focus:outline-none focus:border-orange-400 w-48" />
-        <button onClick={() => setShowAdd(true)}
-          className="text-white font-semibold text-sm rounded-lg px-4 py-2 transition-opacity hover:opacity-90"
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            type="search"
+            placeholder="Szukaj..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="bg-white border border-gray-200 rounded-lg pl-9 pr-4 py-2 text-gray-800 placeholder:text-gray-400 text-sm focus:outline-none focus:border-orange-400 w-48"
+          />
+        </div>
+        <button
+          onClick={() => setShowAdd(true)}
+          className="text-white font-semibold text-sm rounded-lg px-4 py-2 transition-opacity hover:opacity-90 flex items-center gap-1.5"
           style={{ background: '#F97316' }}>
-          + Dodaj działkę
+          <Plus size={15} strokeWidth={2.5} />
+          Dodaj działkę
         </button>
       </div>
 
-      {/* ── Status tabs ─────────────────────────────────────── */}
-      <div className="flex gap-2 mb-6 flex-wrap">
-        <button onClick={() => setStatusFilter(ALL_FILTER)}
-          className="px-4 py-1.5 rounded-full text-sm font-medium transition-colors"
-          style={{
-            background: statusFilter === ALL_FILTER ? '#F97316' : '#FFFFFF',
-            color: statusFilter === ALL_FILTER ? '#FFFFFF' : '#6B7280',
-            border: statusFilter === ALL_FILTER ? 'none' : '1px solid #E5E7EB',
-          }}>
-          Wszystkie ({plots.length})
-        </button>
-        {(Object.entries(STATUS_LABELS) as [PlotStatus, string][]).map(([key, label]) => {
-          const count = plots.filter(p => p.status === key).length
-          if (count === 0 && statusFilter !== key) return null
-          return (
-            <button key={key} onClick={() => setStatusFilter(key)}
-              className="px-4 py-1.5 rounded-full text-sm font-medium transition-colors"
-              style={{
-                background: statusFilter === key ? STATUS_COLORS[key] : '#FFFFFF',
-                color: statusFilter === key ? '#FFFFFF' : '#6B7280',
-                border: statusFilter === key ? 'none' : '1px solid #E5E7EB',
-              }}>
-              {label} ({count})
-            </button>
-          )
-        })}
-      </div>
+      {/* ── Status tabs ─────────────────────────────────────────────────────── */}
+      {plots !== null && (
+        <div className="flex gap-2 mb-6 flex-wrap">
+          <button onClick={() => setStatusFilter(ALL_FILTER)}
+            className="px-4 py-1.5 rounded-full text-sm font-medium transition-colors"
+            style={{
+              background: statusFilter === ALL_FILTER ? '#F97316' : '#FFFFFF',
+              color: statusFilter === ALL_FILTER ? '#FFFFFF' : '#6B7280',
+              border: statusFilter === ALL_FILTER ? 'none' : '1px solid #E5E7EB',
+            }}>
+            Wszystkie ({plots.length})
+          </button>
+          {(Object.entries(STATUS_LABELS) as [PlotStatus, string][]).map(([key, label]) => {
+            const count = plots.filter(p => p.status === key).length
+            if (count === 0 && statusFilter !== key) return null
+            return (
+              <button key={key} onClick={() => setStatusFilter(key)}
+                className="px-4 py-1.5 rounded-full text-sm font-medium transition-colors"
+                style={{
+                  background: statusFilter === key ? STATUS_COLORS[key] : '#FFFFFF',
+                  color: statusFilter === key ? '#FFFFFF' : '#6B7280',
+                  border: statusFilter === key ? 'none' : '1px solid #E5E7EB',
+                }}>
+                {label} ({count})
+              </button>
+            )
+          })}
+        </div>
+      )}
 
-      {/* ── Cards ───────────────────────────────────────────── */}
-      {filtered.length === 0 ? (
+      {/* ── Cards or skeleton ───────────────────────────────────────────────── */}
+      {plots === null ? (
+        /* Loading skeleton */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="text-center py-20">
-          <div className="text-5xl mb-4">📭</div>
-          <p className="text-gray-500 font-medium mb-1">Skrzynka pusta</p>
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+            style={{ background: 'rgba(249,115,22,0.1)' }}>
+            <Package size={28} style={{ color: '#F97316' }} />
+          </div>
+          <p className="text-gray-600 font-semibold mb-1">Skrzynka pusta</p>
           <p className="text-gray-400 text-sm mb-6">Dodaj pierwszą działkę z linku, tekstu lub zdjęcia.</p>
           <button onClick={() => setShowAdd(true)}
-            className="text-white font-semibold rounded-lg px-5 py-2.5 text-sm"
+            className="inline-flex items-center gap-2 text-white font-semibold rounded-xl px-5 py-2.5 text-sm"
             style={{ background: '#F97316' }}>
-            + Dodaj działkę
+            <Plus size={15} strokeWidth={2.5} />
+            Dodaj działkę
           </button>
         </div>
       ) : (
@@ -346,13 +399,18 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
               ? Math.round(plot.asking_price_pln / plot.area_m2)
               : null
             const isProcessing = processingIds.has(plot.id)
+            const mapsHref = plot.lat && plot.lng
+              ? `https://maps.google.com/?q=${plot.lat},${plot.lng}`
+              : plot.location_text
+                ? `https://maps.google.com/?q=${encodeURIComponent(plot.location_text)}`
+                : null
 
             return (
               <div key={plot.id}
                 className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
                 onClick={() => { window.location.href = `/app/workspace/${workspaceId}/plot/${plot.id}` }}>
 
-                {/* Header photo / gradient */}
+                {/* Header gradient */}
                 <div className="h-36 relative flex items-end"
                   style={{ background: 'linear-gradient(135deg, #1E2B3C 0%, #2D4060 100%)' }}>
                   {/* Source badge */}
@@ -361,7 +419,7 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
                       {plot.source_type ? (SOURCE_LABELS[plot.source_type as SourceType] ?? plot.source_type) : 'Inne'}
                     </span>
                   </div>
-                  {/* AI verdict or processing badge */}
+                  {/* AI verdict / processing badge */}
                   <div className="absolute top-3 right-3">
                     {isProcessing ? (
                       <span className="text-xs font-medium px-2 py-1 rounded-full bg-orange-500/90 text-white flex items-center gap-1">
@@ -374,9 +432,7 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
                         {VERDICT_LABELS[verdict]}
                       </span>
                     ) : plot.ai_processed_at ? null : (
-                      <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/60">
-                        brak AI
-                      </span>
+                      <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/60">brak AI</span>
                     )}
                   </div>
                   {/* Price overlay */}
@@ -387,9 +443,7 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
                         <span className="text-white font-semibold text-base">
                           {fmtPrice(plot.asking_price_pln)} PLN
                         </span>
-                        {ppm2 && (
-                          <span className="text-white/70 text-xs">{fmtPrice(ppm2)} /m²</span>
-                        )}
+                        {ppm2 && <span className="text-white/70 text-xs">{fmtPrice(ppm2)} /m²</span>}
                       </div>
                     </div>
                   )}
@@ -402,20 +456,22 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
                   </p>
 
                   {plot.location_text && (
-                    <p className="text-gray-400 text-xs flex items-center gap-1 mb-1.5">
-                      <span>📍</span>
+                    <div className="flex items-center gap-1 text-gray-400 text-xs mb-1.5">
+                      <MapPin size={11} className="flex-shrink-0" />
                       <span className="truncate">{plot.location_text}</span>
-                      <a
-                        href={plot.lat && plot.lng
-                          ? `https://maps.google.com/?q=${plot.lat},${plot.lng}`
-                          : `https://maps.google.com/?q=${encodeURIComponent(plot.location_text)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={e => e.stopPropagation()}
-                        className="text-blue-400 hover:text-blue-600 flex-shrink-0 transition-colors"
-                        title="Google Maps"
-                      >🗺</a>
-                    </p>
+                      {mapsHref && (
+                        <a
+                          href={mapsHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="flex-shrink-0 text-blue-400 hover:text-blue-600 transition-colors"
+                          title="Google Maps"
+                        >
+                          <Map size={11} />
+                        </a>
+                      )}
+                    </div>
                   )}
 
                   {plot.area_m2 && (
@@ -428,7 +484,7 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
                   {score?.score_shared != null && (
                     <div className="mb-2">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs text-gray-400">Ocena ogólna</span>
+                        <span className="text-xs text-gray-400">Ocena</span>
                         <span className="text-xs font-semibold" style={{ color: verdict ? VERDICT_COLORS[verdict] : '#6B7280' }}>
                           {score.score_shared.toFixed(1)}/10
                         </span>
@@ -443,7 +499,7 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
                     </div>
                   )}
 
-                  {/* Status + date */}
+                  {/* Status + date + actions */}
                   <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
                     <span className="text-xs font-medium px-2 py-0.5 rounded-full"
                       style={{
@@ -468,9 +524,9 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
                         e.stopPropagation()
                         if (window.confirm('Usunąć tę działkę z zestawienia?')) deletePlot(plot.id)
                       }}
-                      className="text-xs font-medium py-1.5 px-3 rounded-lg transition-colors text-gray-400 hover:text-red-500 hover:bg-red-50"
+                      className="flex items-center justify-center py-1.5 px-2.5 rounded-lg transition-colors text-gray-300 hover:text-red-500 hover:bg-red-50"
                       title="Usuń działkę">
-                      🗑
+                      <Trash2 size={13} />
                     </button>
                   </div>
                 </div>
