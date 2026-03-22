@@ -75,38 +75,39 @@
     var bmCode = `javascript:(function(){
   var url = window.location.href;
   var text = '';
+  var KEYWORDS = ['działka','m2','m²','PLN','cena','sprzedaż','prąd','woda','dojazd','mpzp','ogłosz','tel','kontakt','metr'];
 
-  // Try multiple FB selectors (FB changes DOM frequently)
-  var selectors = [
-    '[data-ad-comet-preview="message"]',
-    '[data-testid="post_message"]',
-    'div[dir="auto"][class*="xdj266r"]',
-    'div[dir="auto"][class*="x11i5rnm"]',
-  ];
+  // Method 1: FB-specific attribute selectors
+  var el1 = document.querySelector('[data-ad-comet-preview="message"]')
+    || document.querySelector('[data-testid="post_message"]');
+  if (el1 && (el1.innerText||'').length > 40) { text = el1.innerText.trim(); }
 
-  for (var i = 0; i < selectors.length; i++) {
-    var el = document.querySelector(selectors[i]);
-    if (el && el.innerText && el.innerText.length > 30) {
-      text = el.innerText;
-      break;
-    }
-  }
-
-  // Fallback: find longest dir=auto div (usually the post body)
+  // Method 2: score all div[dir=auto] by keyword hits + length
   if (!text) {
-    var divs = document.querySelectorAll('div[dir="auto"]');
-    var best = '';
+    var divs = Array.from(document.querySelectorAll('div[dir="auto"]'));
+    var best = {score: 0, text: ''};
     divs.forEach(function(d) {
       var t = (d.innerText || '').trim();
-      if (t.length > best.length && t.length < 5000) best = t;
+      if (t.length < 40 || t.length > 6000) return;
+      var score = KEYWORDS.reduce(function(s,k){return s+(t.toLowerCase().indexOf(k)>=0?2:0);},0);
+      score += Math.min(t.length/300, 5);
+      if (score > best.score) best = {score:score, text:t};
     });
-    if (best.length > 30) text = best;
+    if (best.score >= 2) text = best.text;
+  }
+
+  // Method 3: all visible text blocks fallback
+  if (!text) {
+    var spans = Array.from(document.querySelectorAll('span,p'));
+    var combined = spans.map(function(s){return (s.innerText||'').trim();}).filter(function(t){return t.length>20;}).join(' ');
+    if (combined.length > 50) text = combined.slice(0, 3000);
   }
 
   var params = '?url=' + encodeURIComponent(url);
   if (text) params += '&text=' + encodeURIComponent(text.slice(0, 3000));
 
-  window.open('${APP}/auto-add' + params, '_blank');
+  // Use location.href (window.open blocked by FB CSP)
+  location.href = '${APP}/auto-add' + params;
 })();`;
 
     document.getElementById('bm').href = bmCode;

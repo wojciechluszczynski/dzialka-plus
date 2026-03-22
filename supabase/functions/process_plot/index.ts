@@ -87,7 +87,8 @@ serve(async (req) => {
   }
 
   try {
-    const { plot_id } = await req.json() as { plot_id: string }
+    const body = await req.json() as { plot_id: string; image_base64?: string }
+    const { plot_id, image_base64 } = body
 
     if (!plot_id) {
       return new Response(JSON.stringify({ error: 'plot_id required' }), {
@@ -165,13 +166,14 @@ serve(async (req) => {
       }
     }
 
-    // 4. EXTRACT_LISTING prompt
+    // 4. EXTRACT_LISTING prompt (with optional image for screenshot support)
     const extractionResult = await runExtraction(anthropic, {
       sourceUrl,
       sourceType: plot.source_type ?? 'other',
       rawText,
       todayDate: new Date().toISOString().split('T')[0],
       fetchedFromUrl,
+      imageBase64: image_base64 ?? null,
     })
 
     // 5. FLAG_RISKS prompt
@@ -248,12 +250,13 @@ serve(async (req) => {
 
 async function runExtraction(
   anthropic: Anthropic,
-  params: { sourceUrl: string; sourceType: string; rawText: string; todayDate: string; fetchedFromUrl: boolean }
+  params: { sourceUrl: string; sourceType: string; rawText: string; todayDate: string; fetchedFromUrl: boolean; imageBase64: string | null }
 ): Promise<unknown> {
   const system = `You are a strict information extraction engine for land plot listings in Poland.
 Return ONLY valid JSON. No prose, no markdown. Language: respond in Polish for human-readable fields.
 Today's date: ${params.todayDate}
-${params.fetchedFromUrl ? 'Note: The raw_text was fetched directly from the listing URL — it may contain navigation/footer noise. Extract only the listing-relevant content.' : ''}`
+${params.fetchedFromUrl ? 'Note: The raw_text was fetched directly from the listing URL — it may contain navigation/footer noise. Extract only the listing-relevant content.' : ''}
+${params.imageBase64 ? 'Note: A screenshot image of the listing is also provided. Extract all visible data including price, area, location, and any text in the image.' : ''}`
 
   const user = `Extract structured listing data:
 - source_url: ${params.sourceUrl}
@@ -291,12 +294,20 @@ Return JSON with these fields:
   }
 }`
 
+  // Build message content — add image if provided
+  type ContentBlock = { type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg'; data: string } }
+  const userContent: ContentBlock[] = []
+  if (params.imageBase64) {
+    userContent.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: params.imageBase64 } })
+  }
+  userContent.push({ type: 'text', text: user })
+
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-5',
     max_tokens: 4096,
     temperature: 0.1,
     system,
-    messages: [{ role: 'user', content: user }],
+    messages: [{ role: 'user', content: userContent }],
   })
 
   const text = response.content

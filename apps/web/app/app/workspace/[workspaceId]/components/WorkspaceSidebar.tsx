@@ -124,14 +124,25 @@ export default function WorkspaceSidebar({ workspaceId, workspaceName }: Props) 
         })}
       </nav>
 
-      {/* Bottom */}
-      <div className="border-t px-3 py-3" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+      {/* Bottom — user + sign out */}
+      <div className="border-t px-3 py-3 space-y-1" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        {/* User avatar */}
+        <div className="flex items-center gap-3 px-3 py-2.5">
+          <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white"
+            style={{ background: '#F97316' }}>
+            WS
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-white/80 leading-tight">Wojtek &amp; Sabina</div>
+            <div className="text-xs leading-tight" style={{ color: '#475569' }}>app@dzialka.plus</div>
+          </div>
+        </div>
         <button
           onClick={handleSignOut}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm w-full text-left transition-colors hover:bg-white/5"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm w-full text-left transition-colors hover:bg-white/5"
           style={{ color: '#64748B' }}
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
             <polyline points="16,17 21,12 16,7"/>
             <line x1="21" y1="12" x2="9" y2="12"/>
