@@ -32,7 +32,10 @@
       "@de/ui": [
         "../../packages/ui/src"
       ]
-    }
+    },
+    "allowJs": true,
+    "noEmit": true,
+    "isolatedModules": true
   },
   "include": [
     "next-env.d.ts",
