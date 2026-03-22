@@ -17,7 +17,7 @@ export default async function AppPage() {
     .single()
 
   if (member) {
-    redirect(`/app/workspace/${member.workspace_id}/plots`)
+    redirect(`/app/workspace/${member.workspace_id}`)
   }
 
   // Auto-create workspace for shared account — no setup screen
@@ -26,7 +26,7 @@ export default async function AppPage() {
 
   const wsData = ws as { id: string } | null
   if (wsData?.id) {
-    redirect(`/app/workspace/${wsData.id}/plots`)
+    redirect(`/app/workspace/${wsData.id}`)
   }
 
   // Fallback — should not happen

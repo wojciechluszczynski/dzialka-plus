@@ -55,7 +55,7 @@ export default function PlotDetailView({ plot: initialPlot, workspaceId }: { plo
     const { data: { user } } = await supabase.auth.getUser()
     const { data: note } = await supabase
       .from('plot_notes')
-      .insert({ plot_id: plot.id, workspace_id: workspaceId, author_id: user!.id, content: noteText.trim() })
+      .insert({ plot_id: plot.id, workspace_id: workspaceId, user_id: user!.id, content: noteText.trim(), is_voice: false })
       .select().single()
     if (note) setPlot((p: typeof plot) => ({ ...p, plot_notes: [...(p.plot_notes ?? []), note] }))
     setNoteText('')
@@ -108,7 +108,20 @@ export default function PlotDetailView({ plot: initialPlot, workspaceId }: { plo
                 {plot.title ?? <span className="text-gray-400 italic font-normal">Bez nazwy</span>}
               </h1>
               {plot.location_text && (
-                <p className="text-gray-500 text-sm mt-0.5">📍 {plot.location_text}</p>
+                <p className="text-gray-500 text-sm mt-0.5 flex items-center gap-1.5">
+                  <span>📍</span>
+                  <span>{plot.location_text}</span>
+                  <a
+                    href={plot.lat && plot.lng
+                      ? `https://maps.google.com/?q=${plot.lat},${plot.lng}`
+                      : `https://maps.google.com/?q=${encodeURIComponent(plot.location_text)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 hover:text-blue-600 text-xs font-medium transition-colors"
+                  >
+                    Mapa ↗
+                  </a>
+                </p>
               )}
             </div>
 

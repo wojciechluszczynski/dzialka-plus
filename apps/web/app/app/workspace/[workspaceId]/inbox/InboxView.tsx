@@ -403,7 +403,18 @@ export default function InboxView({ plots: initialPlots, workspaceId, initialSho
 
                   {plot.location_text && (
                     <p className="text-gray-400 text-xs flex items-center gap-1 mb-1.5">
-                      <span>📍</span> {plot.location_text}
+                      <span>📍</span>
+                      <span className="truncate">{plot.location_text}</span>
+                      <a
+                        href={plot.lat && plot.lng
+                          ? `https://maps.google.com/?q=${plot.lat},${plot.lng}`
+                          : `https://maps.google.com/?q=${encodeURIComponent(plot.location_text)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        className="text-blue-400 hover:text-blue-600 flex-shrink-0 transition-colors"
+                        title="Google Maps"
+                      >🗺</a>
                     </p>
                   )}
 

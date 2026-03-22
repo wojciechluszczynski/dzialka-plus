@@ -11,13 +11,14 @@ interface Props {
 
 const NAV = [
   {
-    id: 'plots',
-    label: 'Działki',
-    href: (id: string) => `/app/workspace/${id}/plots`,
+    id: 'dashboard',
+    label: 'Dashboard',
+    href: (id: string) => `/app/workspace/${id}`,
+    exact: true,
     icon: (
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-        <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
       </svg>
     ),
   },
@@ -106,7 +107,9 @@ export default function WorkspaceSidebar({ workspaceId, workspaceName }: Props) 
       <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
         {NAV.map((item) => {
           const href = item.href(workspaceId)
-          const active = pathname.startsWith(href)
+          const active = 'exact' in item && item.exact
+            ? pathname === href
+            : pathname.startsWith(href)
           return (
             <Link
               key={item.id}
@@ -134,7 +137,7 @@ export default function WorkspaceSidebar({ workspaceId, workspaceName }: Props) 
           </div>
           <div className="min-w-0">
             <div className="text-xs font-medium text-white/80 leading-tight">Wojtek &amp; Sabina</div>
-            <div className="text-xs leading-tight" style={{ color: '#475569' }}>app@dzialka.plus</div>
+            <div className="text-xs leading-tight" style={{ color: '#475569' }}>Działkometr</div>
           </div>
         </div>
         <button
