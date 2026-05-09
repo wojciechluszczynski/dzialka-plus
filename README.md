@@ -1,16 +1,15 @@
 # Działkometr
 
-AI-powered building plot evaluation tool for the Polish real estate market. Add a listing via URL, pasted text, or screenshot — Claude extracts structured data and runs a full risk analysis.
+Narzędzie do oceny działek budowlanych na polskim rynku nieruchomości. Wklej ogłoszenie jako URL, tekst lub zrzut ekranu — aplikacja automatycznie wyciąga dane, analizuje ryzyka i wystawia werdykt.
 
-**Production:** https://dzialkometr.netlify.app
-**Supabase project:** `sdhwhtsikglsfzewhgqc`
+**Produkcja:** https://dzialkometr.netlify.app
 
 ---
 
 ## Features
 
-- **AI extraction** — paste a listing URL (otodom, OLX, gratka, etc.) or raw text (FB post, SMS) and Claude extracts price, area, location, utilities, contact
-- **Claude Vision** — upload a screenshot from your phone and Claude reads the listing image
+- **Automatyczna ekstrakcja** — wklej URL z otodom, OLX, gratka lub surowy tekst (post z FB, SMS) i aplikacja wyciąga cenę, powierzchnię, lokalizację, media, kontakt
+- **Analiza zdjęć** — wgraj zrzut ekranu z telefonu i aplikacja odczyta dane z obrazka
 - **Risk flagging** — automatic risk analysis with severity levels (low/med/high) and dealbreaker detection
 - **Scoring** — each plot gets a 0–10 score and a verdict: ✓ GO / ~ MAYBE / ✗ NO
 - **Bookmarklet** — one-click save from any browser page (Facebook, portals, anywhere)
@@ -27,7 +26,7 @@ AI-powered building plot evaluation tool for the Polish real estate market. Add 
 | Web frontend | Next.js 14 (App Router), TypeScript, Tailwind CSS |
 | Hosting | Netlify (auto-deploy from `main`) |
 | Backend | Supabase — Postgres, Auth (email), Edge Functions (Deno) |
-| AI | Anthropic Claude Sonnet — extraction, risk analysis, Vision |
+| AI | Language model API — ekstrakcja, analiza ryzyk, Vision |
 | Mobile | Expo 51 / React Native *(in progress)* |
 | Monorepo | Turborepo |
 
@@ -110,7 +109,7 @@ supabase functions logs process_plot --project-ref sdhwhtsikglsfzewhgqc
 ```
 
 The function requires these Supabase secrets:
-- `ANTHROPIC_API_KEY` — Claude API key
+- `ANTHROPIC_API_KEY` — klucz API do modelu językowego
 
 ---
 
